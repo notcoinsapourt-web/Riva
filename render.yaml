@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: persian-shop-bot
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./data/persian_shop.db
+      - key: SHOP_NAME
+        value: Persian Shop
+      - key: PAYMENTS_ENABLED
+        value: "false"
+      - key: PAYMENT_INTEGRATION_CONFIRMED
+        value: "false"
+      - key: HEALTH_SERVER_ENABLED
+        value: "true"
+      - key: PYTHON_VERSION
+        value: 3.12.13
+

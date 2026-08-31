@@ -1,0 +1,31 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://persian_shop:persian_shop@database:5432/persian_shop
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "10000:10000"
+
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: persian_shop
+      POSTGRES_USER: persian_shop
+      POSTGRES_PASSWORD: persian_shop
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U persian_shop -d persian_shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+

@@ -1,0 +1,23 @@
+[Unit]
+Description=Persian Shop Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=persian-shop
+Group=persian-shop
+WorkingDirectory=/opt/persian-shop
+EnvironmentFile=/opt/persian-shop/.env
+ExecStart=/opt/persian-shop/.venv/bin/python -m bot
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/persian-shop/data
+
+[Install]
+WantedBy=multi-user.target
+

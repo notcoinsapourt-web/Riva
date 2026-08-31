@@ -1,0 +1,17 @@
+{
+  "app.title": "Persian Shop",
+  "menu.catalog": "فروشگاه",
+  "menu.orders": "سفارش‌های من",
+  "menu.wallet": "کیف پول",
+  "menu.referral": "دعوت دوستان",
+  "menu.tickets": "پشتیبانی",
+  "menu.profile": "حساب کاربری",
+  "common.home": "منوی اصلی",
+  "common.back": "بازگشت",
+  "common.cancel": "لغو",
+  "order.pending": "در انتظار بررسی",
+  "order.approved": "تأیید شده",
+  "order.processing": "در حال انجام",
+  "order.completed": "تکمیل شده",
+  "order.cancelled": "لغو شده"
+}

@@ -1,0 +1,19 @@
+[project]
+name = "persian-shop-bot"
+version = "1.0.0"
+description = "Modular Persian Telegram digital marketplace built with aiogram 3"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+ignore = ["B008"]

@@ -1,0 +1,17 @@
+{
+  "app.title": "Persian Shop",
+  "menu.catalog": "Shop",
+  "menu.orders": "My orders",
+  "menu.wallet": "Wallet",
+  "menu.referral": "Invite friends",
+  "menu.tickets": "Support",
+  "menu.profile": "Profile",
+  "common.home": "Main menu",
+  "common.back": "Back",
+  "common.cancel": "Cancel",
+  "order.pending": "Pending review",
+  "order.approved": "Approved",
+  "order.processing": "Processing",
+  "order.completed": "Completed",
+  "order.cancelled": "Cancelled"
+}
