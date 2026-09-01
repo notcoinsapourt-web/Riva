@@ -21,11 +21,9 @@ from aiogram.types import (
 logger = logging.getLogger(__name__)
 TelegramResult = TypeVar("TelegramResult")
 
-# Telegram doesn't expose the client application in Bot API updates. Some
-# third-party clients accept icon_custom_emoji_id but render an empty slot.
-# Keep a Unicode glyph in the label as a client-side compatibility fallback;
-# the Premium icon is still sent separately through icon_custom_emoji_id.
-KEEP_UNICODE_FALLBACK_WITH_PREMIUM = True
+# Premium icons must be sent separately from the label. Telegram's server-side
+# rejection path still restores the Unicode fallback automatically.
+KEEP_UNICODE_FALLBACK_WITH_PREMIUM = False
 
 # Central premium icon registry. Put valid numeric custom_emoji_id values here to
 # change matching buttons across the entire bot without editing individual routers.
