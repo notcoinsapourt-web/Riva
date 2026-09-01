@@ -22,25 +22,52 @@ from bot.services.users import UserService
 router = Router(name="catalog")
 PAGE_SIZE = 8
 
+CATEGORY_ORDER = (
+    "اشتراک هوش مصنوعی",
+    "خدمات تلگرام",
+    "خدمات اینستاگرام",
+    "خدمات تیک‌تاک",
+    "خدمات یوتیوب",
+    "سایر محصولات دیجیتال",
+    "سایر شبکه‌های اجتماعی",
+)
+
 
 @router.callback_query(NavCallback.filter(F.action == "catalog"))
 async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
     await SettingsService(session).require_module("catalog")
     categories = await CatalogService(session).categories()
-    rows = [
+    category_rank = {name: index for index, name in enumerate(CATEGORY_ORDER)}
+    categories.sort(key=lambda item: (category_rank.get(item.name, len(category_rank)), item.id))
+
+    def category_button(category, *, featured: bool = False):
+        return button(
+            category.name if category.custom_emoji_id else f"{category.emoji} {category.name}",
+            callback_data=CatalogCallback(action="category", entity_id=category.id).pack(),
+            custom_emoji_id=category.custom_emoji_id,
+            style="danger" if featured else "primary",
+        )
+
+    rows = []
+    remaining = list(categories)
+    if remaining and remaining[0].name == "اشتراک هوش مصنوعی":
+        rows.append([category_button(remaining.pop(0), featured=True)])
+    rows.extend(
+        [category_button(category) for category in remaining[index : index + 2]]
+        for index in range(0, len(remaining), 2)
+    )
+    rows.append(
         [
             button(
-                category.name if category.custom_emoji_id else f"{category.emoji} {category.name}",
-                callback_data=CatalogCallback(action="category", entity_id=category.id).pack(),
-                custom_emoji_id=category.custom_emoji_id,
+                "🏠 بازگشت به منوی اصلی",
+                callback_data=NavCallback(action="home").pack(),
+                style="danger",
             )
         ]
-        for category in categories
-    ]
-    rows.append([button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack())])
+    )
     text = (
-        "<b>🛍 فروشگاه Persian Shop</b>\n\nسرویس موردنظر را از دسته‌بندی‌های زیر انتخاب کنید."
+        "<b>🛍 فروشگاه خدمات مجازی</b>\n\nیک دسته‌بندی را انتخاب کنید 👇"
         if categories
         else "<b>🛍 فروشگاه</b>\n\nدر حال حاضر محصول فعالی ثبت نشده است."
     )
@@ -67,10 +94,10 @@ async def show_category(
                     compact_text(product.name, 26)
                     if product.custom_emoji_id
                     else f"{product.emoji} {compact_text(product.name, 26)}"
-                )
-                + f" • {money(product.price)}",
+                ),
                 callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
                 custom_emoji_id=product.custom_emoji_id,
+                style="primary",
             )
         ]
         for product in visible
@@ -83,6 +110,7 @@ async def show_category(
                 callback_data=CatalogCallback(
                     action="category", entity_id=category.id, page=page - 1
                 ).pack(),
+                style="primary",
             )
         )
     if start + PAGE_SIZE < len(products):
@@ -92,17 +120,34 @@ async def show_category(
                 callback_data=CatalogCallback(
                     action="category", entity_id=category.id, page=page + 1
                 ).pack(),
+                style="primary",
             )
         )
     if paging:
         rows.append(paging)
     rows.extend(
         [
-            [button("🗂 دسته‌بندی‌ها", callback_data=NavCallback(action="catalog").pack())],
-            [button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack())],
+            [
+                button(
+                    "↩️ بازگشت به دسته‌بندی‌ها",
+                    callback_data=NavCallback(action="catalog").pack(),
+                    style="primary",
+                )
+            ],
+            [
+                button(
+                    "🏠 بازگشت به منوی اصلی",
+                    callback_data=NavCallback(action="home").pack(),
+                    style="danger",
+                )
+            ],
         ]
     )
-    text = f"<b>{h(category.emoji)} {h(category.name)}</b>\n\n{h(category.description or '')}"
+    text = (
+        f"<b>{h(category.emoji)} {h(category.name)}</b>\n\n"
+        f"{h(category.description or '')}\n\n"
+        "یک محصول را انتخاب کنید 👇"
+    )
     if not products:
         text += "\n\nهنوز محصول فعالی در این دسته ثبت نشده است."
     await edit_or_send(callback, text, reply_markup=keyboard(*rows))
@@ -118,8 +163,12 @@ async def show_product(
     text = (
         f"<b>{h(product.emoji)} {h(product.name)}</b>\n\n"
         f"{h(product.description)}\n\n"
-        f"💳 قیمت: <b>{money(product.price)}</b>\n"
-        "⚡ تحویل و پیگیری از داخل همین ربات"
+        "⚡ شروع سفارش: <b>پس از ثبت و بررسی</b>\n"
+        f"🎯 دسته‌بندی: <b>{h(product.category.name)}</b>\n"
+        "🔐 امنیت: <b>بدون نیاز به رمز عبور</b>\n"
+        "✅ پیگیری وضعیت از داخل همین ربات\n\n"
+        f"💳 قیمت این بسته: <b>{money(product.price)}</b>\n\n"
+        f"🔹 اطلاعات موردنیاز: {h(product.input_prompt)}"
     )
     markup = keyboard(
         [
@@ -135,6 +184,14 @@ async def show_product(
                 callback_data=CatalogCallback(
                     action="category", entity_id=product.category_id
                 ).pack(),
+                style="primary",
+            )
+        ],
+        [
+            button(
+                "🏠 منوی اصلی",
+                callback_data=NavCallback(action="home").pack(),
+                style="danger",
             )
         ],
     )

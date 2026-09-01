@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
 
 def button(
@@ -23,6 +30,17 @@ def button(
 
 def keyboard(*rows: list[InlineKeyboardButton]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=list(rows))
+
+
+def persistent_home_keyboard() -> ReplyKeyboardMarkup:
+    """Keep a large, single-tap home button below the Telegram composer."""
+
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🏠 منو")]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="یک گزینه را انتخاب کنید",
+    )
 
 
 async def edit_or_send(
