@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Iterable
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +27,79 @@ class NotificationService:
             .join(Admin, Admin.user_id == User.id)
             .where(Admin.is_active.is_(True), User.is_blocked.is_(False))
         )
-        return list(result.all())
+        database_ids = list(result.all())
+        configured_ids: list[int] = []
+        for value in os.getenv("ADMIN_IDS", "").split(","):
+            try:
+                configured_ids.append(int(value.strip()))
+            except ValueError:
+                continue
+        return list(dict.fromkeys([*database_ids, *configured_ids]))
 
     async def notify_admins(self, text: str) -> tuple[int, int]:
         return await self.send_many(await self.admin_ids(), text)
+
+    async def notify_admins_receipt(
+        self,
+        *,
+        file_id: str,
+        file_type: str,
+        caption: str,
+        reply_markup: InlineKeyboardMarkup | None = None,
+        delay: float = 0.04,
+    ) -> tuple[int, int]:
+        """Send the actual receipt to every support admin, with a text fallback."""
+
+        sent = failed = 0
+        admin_ids = await self.admin_ids()
+        if not admin_ids:
+            logger.error("Receipt notification skipped because no support admins are configured")
+            return sent, 1
+        for telegram_id in admin_ids:
+            try:
+                if file_type == "document":
+                    await self.bot.send_document(
+                        telegram_id,
+                        file_id,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                    )
+                else:
+                    await self.bot.send_photo(
+                        telegram_id,
+                        file_id,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                    )
+                sent += 1
+            except TelegramRetryAfter as exc:
+                await asyncio.sleep(min(exc.retry_after, 10))
+                try:
+                    await self.bot.send_message(
+                        telegram_id,
+                        caption,
+                        reply_markup=reply_markup,
+                    )
+                    sent += 1
+                except TelegramAPIError:
+                    failed += 1
+            except (TelegramForbiddenError, TelegramAPIError):
+                try:
+                    await self.bot.send_message(
+                        telegram_id,
+                        caption,
+                        reply_markup=reply_markup,
+                    )
+                    sent += 1
+                except TelegramAPIError:
+                    failed += 1
+                    logger.warning(
+                        "Receipt notification delivery failed for telegram_id=%s",
+                        telegram_id,
+                    )
+            if delay:
+                await asyncio.sleep(delay)
+        return sent, failed
 
     async def send_many(
         self, telegram_ids: Iterable[int], text: str, *, delay: float = 0.04

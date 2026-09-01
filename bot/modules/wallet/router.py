@@ -105,12 +105,12 @@ async def deposit_start(
         if not await settings.get_bool("wallet_card_enabled") or not card_number:
             raise ValidationError("واریز کارت در حال حاضر غیرفعال است.")
         destination = (
-            f"برای افزایش موجودی، مبلغ <b>{money(amount)}</b> را به شماره کارت زیر "
+            f"برای افزایش موجودی، مبلغ <b>{money(amount)}</b> را به شماره‌ی حساب زیر "
             "واریز کنید 👇\n\n"
-            "<code>━━━━━━━━━━━━━━━━</code>\n"
+            "<code>====================</code>\n"
             f"<code>{h(card_number)}</code>\n"
             f"<b>{h(await settings.get('wallet_card_holder', '—'))}</b>\n"
-            "<code>━━━━━━━━━━━━━━━━</code>\n\n"
+            "<code>====================</code>\n\n"
             f"{await settings.get('wallet_card_text')}"
         )
         destination_value = card_number
@@ -315,19 +315,49 @@ async def deposit_proof(
         transaction_hash=data.get("transaction_hash"),
     )
     await state.clear()
-    await NotificationService(session, bot).notify_admins(
-        f"<b>💳 درخواست شارژ جدید</b>\n\n"
+    method_text = (
+        "کارت‌به‌کارت"
+        if request.method == DepositMethod.CARD
+        else f"تتر USDT ({h(data.get('crypto_network', 'BEP20'))})"
+    )
+    notification_text = (
+        f"<b>🔔 فیش پرداخت جدید</b>\n\n"
         f"شماره: <code>{request.number}</code>\n"
+        f"روش: <b>{method_text}</b>\n"
         f"مبلغ: <b>{money(request.amount)}</b>\n"
-        f"کاربر: <code>{db_user.telegram_id}</code>"
+        f"کاربر: <b>{h(db_user.first_name)}</b>\n"
+        f"شناسه تلگرام: <code>{db_user.telegram_id}</code>"
         + (
             f"\nمعادل اعلام‌شده: <b>{h(data.get('crypto_amount'))} USDT</b>"
             f"\nنرخ: <b>{h(data.get('crypto_rate_toman'))} تومان</b>"
+            f"\nهش تراکنش: <code>{h(data.get('transaction_hash'))}</code>"
             if data.get("deposit_method") == DepositMethod.CRYPTO.value
             else ""
         )
         + "\n\n"
-        "از پنل مدیریت ← شارژهای دستی بررسی کنید."
+        "رسید را بررسی و نتیجه را از همین پیام ثبت کنید."
+    )
+    review_markup = keyboard(
+        [
+            button(
+                "✅ تأیید و افزایش موجودی",
+                callback_data=DepositCallback(action="approve", request_id=request.id).pack(),
+                style="success",
+            )
+        ],
+        [
+            button(
+                "❌ رد درخواست",
+                callback_data=DepositCallback(action="reject", request_id=request.id).pack(),
+                style="danger",
+            )
+        ],
+    )
+    await NotificationService(session, bot).notify_admins_receipt(
+        file_id=file_id,
+        file_type=file_type,
+        caption=notification_text,
+        reply_markup=review_markup,
     )
     await message.answer(
         f"✅ فیش شما با شماره <code>{request.number}</code> ثبت شد. "

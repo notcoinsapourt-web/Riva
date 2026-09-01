@@ -38,18 +38,19 @@ DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
     ("payments_enabled", "false", "bool", False, "فعال‌سازی نمایشی پرداخت"),
     ("maintenance_mode", "false", "bool", True, "حالت تعمیرات"),
     ("wallet_card_enabled", "true", "bool", False, "فعال بودن شارژ کارت"),
-    ("wallet_card_number", "6219861487954959", "str", False, "شماره کارت شارژ دستی"),
-    ("wallet_card_holder", "علیرضا", "str", False, "نام صاحب کارت"),
+    ("wallet_card_number", "6219861440311393", "str", False, "شماره کارت شارژ دستی"),
+    ("wallet_card_holder", "میرزایی", "str", False, "نام صاحب کارت"),
     (
         "wallet_card_text",
-        "❌ این درخواست به مدت یک ساعت اعتبار دارد؛ پس از آن امکان پرداخت این "
-        "درخواست وجود ندارد.\n"
-        "‼️ مبلغ باید دقیقاً همان مبلغی باشد که در بالا نوشته شده است.\n"
+        "❌ این تراکنش به مدت یک ساعت اعتبار دارد؛ پس از آن امکان پرداخت این "
+        "تراکنش وجود ندارد.\n"
+        "‼️ مبلغ باید همان مبلغی که در بالا ذکر شده واریز شود.\n"
         "‼️ امکان برداشت وجه از کیف پول وجود ندارد.\n"
-        "‼️ مسئولیت واریز اشتباه با شماست.\n\n"
-        "بعد از پرداخت، دکمه «پرداخت کردم | ارسال رسید» را بزنید و تصویر رسید را "
-        "ارسال کنید.\n"
-        "💵 بعد از تأیید پرداخت توسط مدیریت، کیف پول شما شارژ می‌شود.",
+        "‼️ مسئولیت واریز اشتباهی با شماست.\n\n"
+        "بعد از پرداخت، دکمه «پرداخت کردم | ارسال رسید» را بزنید و سپس تصویر رسید "
+        "را ارسال کنید.\n"
+        "💵 بعد از تأیید پرداخت توسط ادمین، کیف پول شما شارژ خواهد شد و در صورتی "
+        "که سفارشی داشته باشید انجام می‌شود.",
         "str",
         False,
         "راهنمای کارت",
@@ -167,6 +168,27 @@ async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
                 value_type="str",
                 is_public=False,
                 description="نسخه متن راهنمای کارت‌به‌کارت",
+            )
+        )
+
+    card_reference_version = "20260902-reference-card-v2"
+    if "wallet_card_reference_version" not in existing:
+        payment_reference = {
+            key: value
+            for key, value, _value_type, _public, _description in DEFAULT_SETTINGS
+            if key in {"wallet_card_number", "wallet_card_holder", "wallet_card_text"}
+        }
+        for key, value in payment_reference.items():
+            item = existing_by_key.get(key)
+            if item is not None:
+                item.value = value
+        session.add(
+            Setting(
+                key="wallet_card_reference_version",
+                value=card_reference_version,
+                value_type="str",
+                is_public=False,
+                description="نسخه اطلاعات کارت مطابق نمونه مرجع",
             )
         )
 
