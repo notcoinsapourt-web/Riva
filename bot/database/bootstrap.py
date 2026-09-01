@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.config import AppSettings
 from bot.database.base import Base
+from bot.database.catalog_seed import DEFAULT_CATEGORIES, DEFAULT_PRODUCTS
 from bot.database.enums import UserRole
-from bot.database.models import Admin, Category, Module, Setting, User, Wallet
+from bot.database.models import Admin, Category, Module, Product, Setting, User, Wallet
 from bot.database.session import Database
 
 DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
@@ -32,14 +33,6 @@ DEFAULT_MODULES: tuple[tuple[str, str, bool, bool, int, str | None, str | None],
     ("payments", "پرداخت آنلاین", False, False, 70, None, "💳"),
 )
 
-DEFAULT_CATEGORIES: tuple[tuple[str, str, str, int], ...] = (
-    ("خدمات تلگرام", "ممبر، ویو، ری‌اکشن، تبلیغات و خدمات کانال", "✈️", 10),
-    ("خدمات اینستاگرام", "فالوور، لایک، ویو، کامنت و خدمات پیج", "📸", 20),
-    ("اشتراک هوش مصنوعی", "ChatGPT، Claude، Gemini، Midjourney و سایر ابزارها", "🤖", 30),
-    ("سایر محصولات دیجیتال", "محصولات و سرویس‌های دیجیتال", "💎", 40),
-)
-
-
 async def create_schema(database: Database) -> None:
     # Initial free edition uses create_all. Alembic is included for controlled upgrades.
     async with database.engine.begin() as connection:
@@ -53,6 +46,7 @@ async def seed_database(
         await _seed_settings(session, settings)
         await _seed_modules(session)
         await _seed_categories(session)
+        await _seed_products(session)
         await _seed_admins(session, settings.admin_ids)
 
 
@@ -94,12 +88,44 @@ async def _seed_modules(session: AsyncSession) -> None:
 
 
 async def _seed_categories(session: AsyncSession) -> None:
-    if (await session.scalar(select(Category.id).limit(1))) is not None:
-        return
+    existing = set((await session.scalars(select(Category.name))).all())
     session.add_all(
-        Category(name=name, description=description, emoji=emoji, sort_order=order)
-        for name, description, emoji, order in DEFAULT_CATEGORIES
+        Category(
+            name=category.name,
+            description=category.description,
+            emoji=category.emoji,
+            sort_order=category.sort_order,
+        )
+        for category in DEFAULT_CATEGORIES
+        if category.name not in existing
     )
+    await session.flush()
+
+
+async def _seed_products(session: AsyncSession) -> None:
+    categories = {
+        category.name: category
+        for category in (await session.scalars(select(Category))).all()
+    }
+    existing = set(
+        (await session.execute(select(Product.category_id, Product.name))).all()
+    )
+    for product in DEFAULT_PRODUCTS:
+        category = categories.get(product.category)
+        if category is None or (category.id, product.name) in existing:
+            continue
+        session.add(
+            Product(
+                category_id=category.id,
+                name=product.name,
+                description=product.description,
+                price=product.price,
+                photo_file_id=product.photo_url,
+                emoji=product.emoji,
+                input_prompt=product.input_prompt,
+                sort_order=product.sort_order,
+            )
+        )
 
 
 async def _seed_admins(session: AsyncSession, telegram_ids: Iterable[int]) -> None:

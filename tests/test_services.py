@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from bot.config import AppSettings
 from bot.core.exceptions import InsufficientBalanceError, PaymentDisabledError, ValidationError
 from bot.database.bootstrap import seed_database
+from bot.database.catalog_seed import DEFAULT_CATEGORIES, DEFAULT_PRODUCTS
 from bot.database.enums import (
     CouponType,
     OrderStatus,
@@ -204,6 +205,24 @@ async def test_core_module_cannot_be_disabled(database) -> None:
             await service.toggle_module("catalog")
         wallet = await service.toggle_module("wallet")
         assert wallet.is_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_catalog_seed_is_complete_and_idempotent(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=())
+    await seed_database(database.session_factory, settings)
+    await seed_database(database.session_factory, settings)
+
+    async with database.session_factory() as session:
+        category_count = await session.scalar(select(func.count(Category.id)))
+        product_count = await session.scalar(select(func.count(Product.id)))
+        products_with_photos = await session.scalar(
+            select(func.count(Product.id)).where(Product.photo_file_id.is_not(None))
+        )
+
+        assert category_count == len(DEFAULT_CATEGORIES)
+        assert product_count == len(DEFAULT_PRODUCTS)
+        assert products_with_photos == len(DEFAULT_PRODUCTS)
 
 
 @pytest.mark.asyncio
