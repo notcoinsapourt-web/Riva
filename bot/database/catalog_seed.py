@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 PRODUCT_IMAGE_BASE_URL = (
-    "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products"
+    "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products-v3"
 )
-PRODUCT_IMAGE_VERSION = "20260901-premium-v2"
+PRODUCT_IMAGE_VERSION = "20260901-luxury-v3"
 
 
 @dataclass(frozen=True, slots=True)
