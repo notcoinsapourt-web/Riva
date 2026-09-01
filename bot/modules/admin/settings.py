@@ -10,6 +10,7 @@ from bot.core.emojis import (
     extract_custom_emoji_id,
     valid_custom_emoji_id,
     validate_custom_emoji,
+    verify_custom_emoji_button_access,
 )
 from bot.core.formatting import h
 from bot.core.states import AdminModuleEditState, AdminSettingsEditState
@@ -272,6 +273,13 @@ async def module_edit_value(
                 await message.answer(
                     "این ایموجی Premium معتبر نیست. خود ایموجی متحرک را ارسال کنید "
                     "یا یک ID عددی معتبر بفرستید."
+                )
+                return
+            if not await verify_custom_emoji_button_access(bot, message.chat.id, emoji_id):
+                await message.answer(
+                    "⚠️ تلگرام این ایموجی را برای دکمه‌های این ربات نپذیرفت و تغییر "
+                    "ذخیره نشد.\n\nمالک همین ربات در BotFather باید اشتراک Premium فعال "
+                    "داشته باشد؛ یا برای ربات Additional Username از Fragment تهیه شده باشد."
                 )
                 return
             kwargs = {"custom_emoji_id": emoji_id}

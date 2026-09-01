@@ -1,7 +1,10 @@
-from aiogram.types import InlineKeyboardMarkup
+from datetime import UTC, datetime
+
+from aiogram.enums import ChatType, MessageEntityType
+from aiogram.types import Chat, InlineKeyboardMarkup, Message, MessageEntity
 
 from bot.core.callbacks import AdminCallback, CatalogCallback, ModuleCallback
-from bot.core.emojis import PREMIUM_EMOJIS, keyboard_without_premium
+from bot.core.emojis import PREMIUM_EMOJIS, extract_custom_emoji_id, keyboard_without_premium
 from bot.core.i18n import I18n
 from bot.core.ui import button, persistent_home_keyboard
 
@@ -29,6 +32,25 @@ def test_premium_button_fields_are_supported() -> None:
 def test_invalid_custom_emoji_is_ignored() -> None:
     item = button("فروشگاه", callback_data="n:catalog", custom_emoji_id="none")
     assert item.icon_custom_emoji_id is None
+
+
+def test_premium_emoji_id_is_extracted_from_admin_message() -> None:
+    message = Message(
+        message_id=1,
+        date=datetime.now(UTC),
+        chat=Chat(id=6743306652, type=ChatType.PRIVATE),
+        text="⭐",
+        entities=[
+            MessageEntity(
+                type=MessageEntityType.CUSTOM_EMOJI,
+                offset=0,
+                length=1,
+                custom_emoji_id="5368324170671202286",
+            )
+        ],
+    )
+
+    assert extract_custom_emoji_id(message) == "5368324170671202286"
 
 
 def test_premium_icon_is_separate_and_has_unicode_fallback(monkeypatch) -> None:

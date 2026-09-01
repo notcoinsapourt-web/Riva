@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -117,6 +118,7 @@ class ResolvedButtonEmoji:
 
 
 _BUTTON_FALLBACKS: dict[tuple[str, str, str], str] = {}
+_PREMIUM_FALLBACK_USED: ContextVar[bool] = ContextVar("premium_emoji_fallback_used", default=False)
 
 
 def valid_custom_emoji_id(value: str | None) -> str | None:
@@ -191,6 +193,40 @@ async def validate_custom_emoji(bot: Bot, emoji_id: str) -> bool:
         return False
 
 
+async def verify_custom_emoji_button_access(bot: Bot, chat_id: int, emoji_id: str) -> bool:
+    """Verify that Telegram accepts this icon for a button sent by this bot."""
+
+    value = valid_custom_emoji_id(emoji_id)
+    if value is None:
+        return False
+    marker = _PREMIUM_FALLBACK_USED.set(False)
+    test_message: Message | None = None
+    try:
+        test_message = await bot.send_message(
+            chat_id,
+            "در حال بررسی دسترسی ایموجی Premium…",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="پیش‌نمایش ایموجی",
+                            callback_data="premium_emoji_access_test",
+                            icon_custom_emoji_id=value,
+                        )
+                    ]
+                ]
+            ),
+        )
+        return not _PREMIUM_FALLBACK_USED.get()
+    finally:
+        if test_message is not None:
+            try:
+                await bot.delete_message(chat_id, test_message.message_id)
+            except TelegramBadRequest:
+                pass
+        _PREMIUM_FALLBACK_USED.reset(marker)
+
+
 class PremiumEmojiFallbackMiddleware(BaseRequestMiddleware):
     """Retry rejected keyboard icons once with their Unicode fallback text."""
 
@@ -204,7 +240,10 @@ class PremiumEmojiFallbackMiddleware(BaseRequestMiddleware):
             fallback_markup = keyboard_without_premium(markup)
             if fallback_markup is None:
                 raise
-            logger.warning("Telegram rejected premium keyboard icons; retrying with Unicode")
+            _PREMIUM_FALLBACK_USED.set(True)
+            logger.warning(
+                "Telegram rejected premium keyboard icons; retrying with Unicode: %s", exc
+            )
             return await make_request(
                 bot, method.model_copy(update={"reply_markup": fallback_markup})
             )
