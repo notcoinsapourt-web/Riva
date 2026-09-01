@@ -26,7 +26,7 @@ def test_premium_button_fields_are_supported() -> None:
         style="primary",
     )
     assert item.icon_custom_emoji_id == "5368324170671202286"
-    assert item.style is None
+    assert item.style == "primary"
 
 
 def test_invalid_custom_emoji_is_ignored() -> None:
@@ -56,7 +56,7 @@ def test_premium_emoji_id_is_extracted_from_admin_message() -> None:
 def test_premium_icon_is_separate_and_has_unicode_fallback(monkeypatch) -> None:
     monkeypatch.setitem(PREMIUM_EMOJIS, "home", "5368324170671202286")
     item = button("🏠 منوی اصلی", callback_data="n:home")
-    assert item.text == "منوی اصلی"
+    assert item.text == "\u200fمنوی اصلی"
     assert item.icon_custom_emoji_id == "5368324170671202286"
 
     fallback = keyboard_without_premium(InlineKeyboardMarkup(inline_keyboard=[[item]]))

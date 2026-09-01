@@ -152,7 +152,7 @@ def resolve_button_emoji(
         text if fallback and text.startswith(fallback) else _with_fallback(text, fallback)
     )
     return ResolvedButtonEmoji(
-        text=clean_text or text,
+        text=_rtl_safe_button_text(clean_text or text),
         custom_emoji_id=emoji_id,
         fallback_text=fallback_text,
     )
@@ -300,6 +300,14 @@ def _detect_key(text: str, requested: str | None) -> tuple[str | None, str | Non
 
 def _with_fallback(text: str, fallback: str | None) -> str:
     return f"{fallback} {text}" if fallback else text
+
+
+def _rtl_safe_button_text(text: str) -> str:
+    """Make Telegram place a separate button icon before Persian text visually."""
+
+    if text.startswith("\u200f"):
+        return text
+    return f"\u200f{text}" if any("\u0600" <= character <= "\u06ff" for character in text) else text
 
 
 def _leading_emoji_token(text: str) -> str | None:

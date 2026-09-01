@@ -36,10 +36,7 @@ def button(
             custom_emoji_id=resolved.custom_emoji_id,
             fallback_text=resolved.fallback_text,
         )
-    # Some Android clients currently reserve an empty icon slot when a styled
-    # RTL button also contains icon_custom_emoji_id. Prefer the Premium icon;
-    # regular buttons keep their requested color style.
-    if style and not resolved.custom_emoji_id:
+    if style:
         payload["style"] = style
     return InlineKeyboardButton(**payload)  # type: ignore[arg-type]
 
