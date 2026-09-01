@@ -23,6 +23,11 @@ def test_premium_button_fields_are_supported() -> None:
     assert item.style == "primary"
 
 
+def test_invalid_custom_emoji_is_ignored() -> None:
+    item = button("فروشگاه", callback_data="n:catalog", custom_emoji_id="none")
+    assert item.icon_custom_emoji_id is None
+
+
 def test_persistent_home_keyboard_is_full_width_and_persistent() -> None:
     markup = persistent_home_keyboard()
     assert [[item.text for item in row] for row in markup.keyboard] == [["🏠 منو"]]

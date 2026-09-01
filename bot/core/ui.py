@@ -21,7 +21,7 @@ def button(
     """Create a modern Telegram button with optional Bot API premium styling."""
 
     payload: dict[str, object] = {"text": text, "callback_data": callback_data}
-    if custom_emoji_id:
+    if custom_emoji_id and custom_emoji_id.isdecimal():
         payload["icon_custom_emoji_id"] = custom_emoji_id
     if style:
         payload["style"] = style
