@@ -113,6 +113,16 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
                         callback_data=AdminCallback(section="modules", action="list").pack(),
                     ),
                 ],
+                [
+                    button(
+                        "💳 شارژهای دستی",
+                        callback_data=AdminCallback(section="deposits", action="list").pack(),
+                    ),
+                    button(
+                        "📣 قفل عضویت",
+                        callback_data=AdminCallback(section="channels", action="list").pack(),
+                    ),
+                ],
             ]
         )
     elif role == UserRole.OPERATOR:

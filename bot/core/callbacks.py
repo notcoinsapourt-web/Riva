@@ -38,3 +38,14 @@ class ModuleCallback(CallbackData, prefix="m"):
 class CouponCallback(CallbackData, prefix="coup"):
     action: str
     coupon_id: int = 0
+
+
+class DepositCallback(CallbackData, prefix="dep"):
+    action: str
+    request_id: int = 0
+    method: str = ""
+
+
+class ChannelCallback(CallbackData, prefix="ch"):
+    action: str
+    channel_id: int = 0

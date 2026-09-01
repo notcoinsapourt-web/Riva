@@ -11,6 +11,8 @@ from bot.database.bootstrap import seed_database
 from bot.database.catalog_seed import DEFAULT_CATEGORIES, DEFAULT_PRODUCTS
 from bot.database.enums import (
     CouponType,
+    DepositMethod,
+    DepositStatus,
     OrderStatus,
     PaymentStatus,
     TransactionType,
@@ -20,6 +22,7 @@ from bot.database.models import Category, Order, Payment, Product, Transaction, 
 from bot.modules.payments.providers.base import GatewayVerification
 from bot.services.admin import AdminAccessService
 from bot.services.coupons import CouponService
+from bot.services.deposits import DepositService
 from bot.services.orders import OrderService
 from bot.services.payments import PaymentService
 from bot.services.settings import SettingsService
@@ -84,6 +87,37 @@ async def test_wallet_is_idempotent_and_never_negative(database) -> None:
                 description="too much",
                 idempotency_key="debit-key",
             )
+
+
+@pytest.mark.asyncio
+async def test_manual_deposit_approval_credits_wallet_exactly_once(database) -> None:
+    async with database.session_factory() as session:
+        customer = await _customer(session, telegram_id=1101)
+        reviewer = await _customer(session, telegram_id=1102)
+        service = DepositService(session)
+        request = await service.create(
+            user_id=customer.id,
+            method=DepositMethod.CRYPTO,
+            amount=375_000,
+            proof_file_id="telegram-file-id",
+            proof_file_type="photo",
+            transaction_hash="0x-test-hash",
+        )
+
+        approved = await service.approve(request.id, reviewer.id)
+        approved_again = await service.approve(request.id, reviewer.id)
+
+        assert approved.status == DepositStatus.APPROVED
+        assert approved_again.id == approved.id
+        assert (await WalletService(session).get(customer.id)).balance == 375_000
+        assert (
+            await session.scalar(
+                select(func.count(Transaction.id)).where(
+                    Transaction.idempotency_key == f"manual-deposit:{request.id}"
+                )
+            )
+            == 1
+        )
 
 
 @pytest.mark.asyncio

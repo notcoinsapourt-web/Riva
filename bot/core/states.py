@@ -74,3 +74,13 @@ class AdminModuleEditState(StatesGroup):
 
 class AdminAccessState(StatesGroup):
     telegram_id = State()
+
+
+class WalletDepositState(StatesGroup):
+    amount = State()
+    transaction_hash = State()
+    proof = State()
+
+
+class AdminChannelState(StatesGroup):
+    channel = State()

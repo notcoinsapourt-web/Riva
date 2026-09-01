@@ -40,9 +40,10 @@ async def referral_home(
         or 0
     )
     reward = await settings.get_int("referral_reward", 0)
+    intro = await settings.module_content("referral", "<b>🎁 دعوت دوستان</b>")
     await edit_or_send(
         callback,
-        "<b>🎁 دعوت دوستان</b>\n\n"
+        intro + "\n\n"
         "لینک اختصاصی شما:\n"
         f"<code>{link}</code>\n\n"
         f"👥 تعداد دعوت‌ها: <b>{invited}</b>\n"

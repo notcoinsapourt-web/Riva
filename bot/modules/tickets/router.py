@@ -26,7 +26,8 @@ async def tickets_home(
     state: FSMContext,
 ) -> None:
     await state.clear()
-    await SettingsService(session).require_module("tickets")
+    settings = SettingsService(session)
+    await settings.require_module("tickets")
     tickets = await TicketService(session).user_tickets(db_user.id)
     rows = [
         [
@@ -51,7 +52,8 @@ async def tickets_home(
     )
     await edit_or_send(
         callback,
-        "<b>🎧 پشتیبانی</b>\n\n"
+        await settings.module_content("tickets", "<b>🎧 پشتیبانی</b>")
+        + "\n\n"
         + ("تیکت موردنظر را انتخاب کنید." if tickets else "هنوز تیکتی ثبت نکرده‌اید."),
         reply_markup=keyboard(*rows),
     )

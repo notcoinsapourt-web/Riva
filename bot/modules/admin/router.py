@@ -4,8 +4,10 @@ from bot.modules.admin import (
     admins,
     broadcast,
     catalog,
+    channels,
     coupons,
     dashboard,
+    deposits,
     messages,
     orders,
     settings,
@@ -16,6 +18,8 @@ from bot.modules.admin import (
 router = Router(name="admin")
 router.include_routers(
     dashboard.router,
+    deposits.router,
+    channels.router,
     admins.router,
     orders.router,
     catalog.router,

@@ -16,7 +16,8 @@ router = Router(name="orders")
 
 @router.callback_query(NavCallback.filter(F.action == "orders"))
 async def list_orders(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
-    await SettingsService(session).require_module("orders")
+    settings = SettingsService(session)
+    await settings.require_module("orders")
     orders = await OrderService(session).user_orders(db_user.id)
     rows = [
         [
@@ -29,7 +30,8 @@ async def list_orders(callback: CallbackQuery, session: AsyncSession, db_user: U
         for order in orders
     ]
     rows.append([button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack())])
-    text = "<b>📦 سفارش‌های من</b>\n\n"
+    text = await settings.module_content("orders", "<b>📦 سفارش‌های من</b>")
+    text += "\n\n"
     text += (
         "برای مشاهده جزئیات، یک سفارش را انتخاب کنید." if orders else "هنوز سفارشی ثبت نکرده‌اید."
     )

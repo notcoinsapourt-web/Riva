@@ -28,7 +28,7 @@ from bot.services.settings import SettingsService
 from bot.services.users import UserService
 
 router = Router(name="catalog")
-PAGE_SIZE = 8
+PAGE_SIZE = 10
 
 CATEGORY_ORDER = (
     "اشتراک هوش مصنوعی",
@@ -74,8 +74,9 @@ async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FS
             )
         ]
     )
+    custom_text = await SettingsService(session).module_content("catalog")
     text = (
-        "<b>🛍 فروشگاه خدمات مجازی</b>\n\nیک دسته‌بندی را انتخاب کنید 👇"
+        (custom_text or "<b>🛍 فروشگاه خدمات مجازی</b>\n\nیک دسته‌بندی را انتخاب کنید 👇")
         if categories
         else "<b>🛍 فروشگاه</b>\n\nدر حال حاضر محصول فعالی ثبت نشده است."
     )
@@ -95,17 +96,16 @@ async def show_category(
     page = max(0, callback_data.page)
     start = page * PAGE_SIZE
     visible = products[start : start + PAGE_SIZE]
-    rows = [
-        [
-            button(
-                f"{product.emoji} {compact_text(display_name(product), 32)}",
-                callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
-                custom_emoji_id=product.custom_emoji_id,
-                style="primary",
-            )
-        ]
+    product_buttons = [
+        button(
+            f"{product.emoji} {compact_text(display_name(product), 22)}",
+            callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
+            custom_emoji_id=product.custom_emoji_id,
+            style="primary",
+        )
         for product in visible
     ]
+    rows = [product_buttons[index : index + 2] for index in range(0, len(product_buttons), 2)]
     paging = []
     if page > 0:
         paging.append(
@@ -129,22 +129,12 @@ async def show_category(
         )
     if paging:
         rows.append(paging)
-    rows.extend(
+    rows.append(
         [
-            [
-                button(
-                    "↩️ بازگشت به دسته‌بندی‌ها",
-                    callback_data=NavCallback(action="catalog").pack(),
-                    style="primary",
-                )
-            ],
-            [
-                button(
-                    "🏠 بازگشت به منوی اصلی",
-                    callback_data=NavCallback(action="home").pack(),
-                    style="danger",
-                )
-            ],
+            button(
+                "↩️ دسته‌بندی‌ها", callback_data=NavCallback(action="catalog").pack(), style="primary"
+            ),
+            button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack(), style="danger"),
         ]
     )
     text = (
@@ -166,6 +156,7 @@ async def show_product(
     product = await CatalogService(session).product(callback_data.entity_id)
     policy = quantity_policy(product)
     product_name = display_name(product)
+    requirement, safety = order_requirements(product)
     pricing = (
         f"💳 نرخ پایه: <b>{money(product.price)}</b> برای "
         f"<b>{policy.base_quantity:,}</b> عدد\n"
@@ -181,7 +172,8 @@ async def show_product(
         "⚡ شروع: <b>پس از ثبت و بررسی سفارش</b>\n"
         f"🎯 دسته‌بندی: <b>{h(product.category.name)}</b>\n"
         "✅ قیمت نهایی قبل از پرداخت نمایش داده می‌شود\n"
-        "🔐 رمز عبور یا کد ورود داخل ربات دریافت نمی‌شود\n\n"
+        f"📝 اطلاعات لازم: {h(requirement)}\n"
+        f"🔐 {h(safety)}\n\n"
         f"{pricing}"
     )
     markup = keyboard(

@@ -17,10 +17,40 @@ DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
     ("shop_name", "Persian Shop", "str", True, "نام فروشگاه"),
     ("currency", "تومان", "str", True, "واحد پول"),
     ("support_username", "", "str", True, "نام کاربری پشتیبانی"),
-    ("welcome_text", "به فروشگاه دیجیتال Persian Shop خوش آمدید.", "str", True, "پیام خوش‌آمد"),
+    (
+        "welcome_text",
+        "سلام {first_name} 👋\n"
+        "به آروان‌کوین خوش اومدی.\n"
+        "اینجا قراره اشتراک سرویس‌های محبوب، اکانت‌های پرمیوم و ابزارهای هوش "
+        "مصنوعی رو سریع، مطمئن و بدون دردسر تهیه کنی.\n\n"
+        "⚡️ تحویل فوری بعد از ثبت سفارش\n"
+        "🛡 پشتیبانی و گارانتی\n"
+        "💎 اکانت‌های تست‌شده و مطمئن\n"
+        "🎵 اشتراک موزیک، فیلم، VPN و AI\n"
+        "💰 قیمت اقتصادی و مناسب\n\n"
+        "سرویس موردنظرت رو از منوی محصولات انتخاب کن و چند دقیقه بعد تحویل بگیر 🚀",
+        "str",
+        True,
+        "پیام خوش‌آمد؛ متغیرهای {first_name}، {balance} و {currency} مجازند",
+    ),
     ("referral_reward", "0", "int", True, "پاداش دعوت پس از اولین سفارش تکمیل‌شده"),
     ("payments_enabled", "false", "bool", False, "فعال‌سازی نمایشی پرداخت"),
     ("maintenance_mode", "false", "bool", True, "حالت تعمیرات"),
+    ("wallet_card_enabled", "false", "bool", False, "فعال بودن شارژ کارت"),
+    ("wallet_card_number", "", "str", False, "شماره کارت شارژ دستی"),
+    ("wallet_card_holder", "", "str", False, "نام صاحب کارت"),
+    (
+        "wallet_card_text",
+        "پس از واریز، مبلغ و تصویر فیش را ارسال کنید.",
+        "str",
+        False,
+        "راهنمای کارت",
+    ),
+    ("wallet_crypto_enabled", "false", "bool", False, "فعال بودن شارژ رمزارز"),
+    ("wallet_crypto_network", "TRC20", "str", False, "شبکه رمزارز"),
+    ("wallet_crypto_address", "", "str", False, "آدرس کیف پول رمزارز"),
+    ("wallet_crypto_text", "هش تراکنش و تصویر رسید را ارسال کنید.", "str", False, "راهنمای رمزارز"),
+    ("forced_join_enabled", "false", "bool", False, "قفل عضویت کانال"),
 )
 
 DEFAULT_MODULES: tuple[tuple[str, str, bool, bool, int, str | None, str | None], ...] = (
@@ -54,7 +84,8 @@ async def seed_database(
 
 
 async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
-    existing = set((await session.scalars(select(Setting.key))).all())
+    existing_items = list((await session.scalars(select(Setting))).all())
+    existing = {item.key for item in existing_items}
     overrides = {
         "shop_name": settings.shop_name,
         "support_username": settings.support_username,
@@ -71,6 +102,11 @@ async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
                     description=description,
                 )
             )
+    legacy_welcome = next((item for item in existing_items if item.key == "welcome_text"), None)
+    if legacy_welcome and legacy_welcome.value == "به فروشگاه دیجیتال Persian Shop خوش آمدید.":
+        legacy_welcome.value = next(
+            item[1] for item in DEFAULT_SETTINGS if item[0] == "welcome_text"
+        )
 
 
 async def _seed_modules(session: AsyncSession) -> None:

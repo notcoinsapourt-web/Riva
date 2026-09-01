@@ -25,6 +25,9 @@ class SettingsService:
         value = (await self.get(key, str(default))).strip().lower()
         return value in {"1", "true", "yes", "on"}
 
+    async def module_content(self, name: str, default: str = "") -> str:
+        return await self.get(f"module_content_{name}", default)
+
     async def set(
         self,
         key: str,

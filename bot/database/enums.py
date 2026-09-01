@@ -37,6 +37,17 @@ class TransactionType(StrEnum):
     ADMIN_DEBIT = "admin_debit"
 
 
+class DepositMethod(StrEnum):
+    CARD = "card"
+    CRYPTO = "crypto"
+
+
+class DepositStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class CouponType(StrEnum):
     PERCENT = "percent"
     FIXED = "fixed"

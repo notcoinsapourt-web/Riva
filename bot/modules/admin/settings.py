@@ -30,6 +30,17 @@ EDITABLE_SETTINGS = {
     "maintenance_mode": ("حالت تعمیرات (true/false)", "bool"),
 }
 
+WALLET_SETTINGS = {
+    "wallet_card_enabled": ("کارت‌به‌کارت فعال (true/false)", "bool"),
+    "wallet_card_number": ("شماره کارت", "str"),
+    "wallet_card_holder": ("نام صاحب کارت", "str"),
+    "wallet_card_text": ("متن راهنمای کارت", "html"),
+    "wallet_crypto_enabled": ("ارز دیجیتال فعال (true/false)", "bool"),
+    "wallet_crypto_network": ("شبکه ارز دیجیتال", "str"),
+    "wallet_crypto_address": ("آدرس ارز دیجیتال", "str"),
+    "wallet_crypto_text": ("متن راهنمای ارز دیجیتال", "html"),
+}
+
 
 @router.callback_query(AdminCallback.filter((F.section == "settings") & (F.action == "list")))
 async def settings_list(callback: CallbackQuery, session: AsyncSession) -> None:
@@ -50,10 +61,46 @@ async def settings_list(callback: CallbackQuery, session: AsyncSession) -> None:
     rows.append(
         [
             button(
+                "💳 تنظیمات شارژ دستی",
+                callback_data=AdminCallback(section="settings", action="wallet").pack(),
+                style="success",
+            )
+        ]
+    )
+    rows.append(
+        [
+            button(
                 "↩️ پنل مدیریت",
                 callback_data=AdminCallback(section="dashboard", action="show").pack(),
             )
         ]
+    )
+
+
+@router.callback_query(AdminCallback.filter((F.section == "settings") & (F.action == "wallet")))
+async def wallet_settings(callback: CallbackQuery, session: AsyncSession) -> None:
+    service = SettingsService(session)
+    rows = []
+    lines = []
+    for index, (key, (label, _)) in enumerate(WALLET_SETTINGS.items(), start=1):
+        value = await service.get(key)
+        preview = value if len(value) <= 35 else value[:32] + "…"
+        lines.append(f"{index}. <b>{h(label)}:</b> <code>{h(preview or '—')}</code>")
+        rows.append(
+            [
+                button(
+                    f"✏️ {label}",
+                    callback_data=AdminCallback(section="settings", action=f"wedit_{index}").pack(),
+                )
+            ]
+        )
+    rows.append(
+        [button("↩️ تنظیمات", callback_data=AdminCallback(section="settings", action="list").pack())]
+    )
+    await edit_or_send(
+        callback,
+        "<b>💳 تنظیمات شارژ دستی</b>\n\n" + "\n".join(lines),
+        reply_markup=keyboard(*rows),
     )
     await edit_or_send(
         callback,
@@ -63,14 +110,18 @@ async def settings_list(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(
-    AdminCallback.filter((F.section == "settings") & F.action.startswith("edit_"))
+    AdminCallback.filter(
+        (F.section == "settings") & (F.action.startswith("edit_") | F.action.startswith("wedit_"))
+    )
 )
 async def setting_edit_start(
     callback: CallbackQuery, callback_data: AdminCallback, state: FSMContext
 ) -> None:
-    index = int(callback_data.action.removeprefix("edit_")) - 1
+    wallet_edit = callback_data.action.startswith("wedit_")
+    index = int(callback_data.action.removeprefix("wedit_" if wallet_edit else "edit_")) - 1
     try:
-        key, (label, value_type) = list(EDITABLE_SETTINGS.items())[index]
+        source = WALLET_SETTINGS if wallet_edit else EDITABLE_SETTINGS
+        key, (label, value_type) = list(source.items())[index]
     except (IndexError, ValueError):
         await callback.answer("تنظیم نامعتبر است.", show_alert=True)
         return
@@ -89,7 +140,11 @@ async def setting_edit_value(
     data = await state.get_data()
     key = str(data["setting_key"])
     value_type = str(data["value_type"])
-    value = message.text.strip()
+    value = (
+        message.html_text.strip()
+        if value_type == "html" or key == "welcome_text"
+        else message.text.strip()
+    )
     if value_type == "int" and not value.replace(",", "").isdigit():
         await message.answer("مقدار باید عدد باشد.")
         return
@@ -98,7 +153,9 @@ async def setting_edit_value(
         return
     if value_type == "int":
         value = value.replace(",", "")
-    await SettingsService(session).set(key, value, value_type=value_type)
+    await SettingsService(session).set(
+        key, value, value_type="str" if value_type == "html" else value_type
+    )
     await ActivityLogService(session).record(
         "setting.updated",
         actor_user_id=db_user.id,
@@ -151,9 +208,9 @@ async def modules_list(callback: CallbackQuery, session: AsyncSession) -> None:
 async def module_detail(
     callback: CallbackQuery, callback_data: ModuleCallback, session: AsyncSession
 ) -> None:
-    module = next(
-        item for item in await SettingsService(session).modules() if item.name == callback_data.name
-    )
+    service = SettingsService(session)
+    module = next(item for item in await service.modules() if item.name == callback_data.name)
+    has_content = bool(await service.get(f"module_content_{module.name}"))
     await edit_or_send(
         callback,
         f"<b>🧩 {h(module.display_name)}</b>\n\n"
@@ -162,6 +219,7 @@ async def module_detail(
         f"دکمه: {h(module.menu_text or 'بدون دکمه')}\n"
         f"ایموجی: {h(module.emoji or '—')}\n"
         f"Custom Emoji ID: <code>{h(module.custom_emoji_id or '—')}</code>\n"
+        f"متن بخش: {'✅ تنظیم شده' if has_content else 'پیش‌فرض'}\n"
         f"ترتیب: {module.sort_order}",
         reply_markup=keyboard(
             [
@@ -194,7 +252,11 @@ async def module_detail(
                 button(
                     "💠 Custom Emoji",
                     callback_data=ModuleCallback(action="edit_custom", name=module.name).pack(),
-                )
+                ),
+                button(
+                    "📝 متن بخش",
+                    callback_data=ModuleCallback(action="edit_content", name=module.name).pack(),
+                ),
             ],
             [
                 button(
@@ -232,7 +294,7 @@ async def module_edit_start(
     callback: CallbackQuery, callback_data: ModuleCallback, state: FSMContext
 ) -> None:
     field = callback_data.action.removeprefix("edit_")
-    if field not in {"text", "emoji", "custom"}:
+    if field not in {"text", "emoji", "custom", "content"}:
         return
     await state.set_state(AdminModuleEditState.value)
     await state.set_data({"module_name": callback_data.name, "field": field})
@@ -242,6 +304,10 @@ async def module_edit_start(
         "custom": (
             "ایموجی Premium متحرک را مستقیماً ارسال کنید یا Custom Emoji ID را بفرستید؛ "
             "برای حذف عدد 0 را ارسال کنید."
+        ),
+        "content": (
+            "متن یا توضیح این بخش را ارسال کنید. ایموجی Premium داخل پیام نیز حفظ می‌شود؛ "
+            "برای بازگرداندن متن پیش‌فرض عدد 0 را بفرستید."
         ),
     }[field]
     await edit_or_send(callback, prompt)
@@ -260,7 +326,14 @@ async def module_edit_value(
     field = str(data["field"])
     value = message.text.strip()
     kwargs: dict[str, str | None]
-    if field == "text":
+    if field == "content":
+        await SettingsService(session).set(
+            f"module_content_{name}",
+            "" if value == "0" else message.html_text.strip(),
+            description=f"متن قابل تنظیم ماژول {name}",
+        )
+        kwargs = {}
+    elif field == "text":
         kwargs = {"menu_text": value}
     elif field == "emoji":
         kwargs = {"emoji": "" if value == "0" else value}
@@ -283,7 +356,8 @@ async def module_edit_value(
                 )
                 return
             kwargs = {"custom_emoji_id": emoji_id}
-    await SettingsService(session).update_module_ui(name, **kwargs)
+    if kwargs:
+        await SettingsService(session).update_module_ui(name, **kwargs)
     await ActivityLogService(session).record(
         "module.ui_updated",
         actor_user_id=db_user.id,

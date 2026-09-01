@@ -22,6 +22,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from bot.database.base import Base, TimestampMixin
 from bot.database.enums import (
     CouponType,
+    DepositMethod,
+    DepositStatus,
     OrderStatus,
     PaymentStatus,
     TicketSender,
@@ -241,6 +243,42 @@ class Payment(TimestampMixin, Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ManualDeposit(TimestampMixin, Base):
+    __tablename__ = "manual_deposits"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    method: Mapped[DepositMethod] = mapped_column(enum_column(DepositMethod, "deposit_method"))
+    amount: Mapped[int] = mapped_column(BigInteger)
+    proof_file_id: Mapped[str] = mapped_column(String(256))
+    proof_file_type: Mapped[str] = mapped_column(String(16), default="photo")
+    transaction_hash: Mapped[str | None] = mapped_column(String(256))
+    status: Mapped[DepositStatus] = mapped_column(
+        enum_column(DepositStatus, "deposit_status"), default=DepositStatus.PENDING, index=True
+    )
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (CheckConstraint("amount > 0", name="ck_manual_deposit_amount_positive"),)
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+
+
+class RequiredChannel(TimestampMixin, Base):
+    __tablename__ = "required_channels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    username: Mapped[str | None] = mapped_column(String(64))
+    invite_link: Mapped[str] = mapped_column(String(300))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=100, index=True)
 
 
 class CouponRedemption(Base):
