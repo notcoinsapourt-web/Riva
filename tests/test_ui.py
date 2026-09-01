@@ -56,7 +56,7 @@ def test_premium_emoji_id_is_extracted_from_admin_message() -> None:
 def test_premium_icon_is_separate_and_has_unicode_fallback(monkeypatch) -> None:
     monkeypatch.setitem(PREMIUM_EMOJIS, "home", "5368324170671202286")
     item = button("🏠 منوی اصلی", callback_data="n:home")
-    assert item.text == "منوی اصلی"
+    assert item.text == "🏠 منوی اصلی"
     assert item.icon_custom_emoji_id == "5368324170671202286"
 
     fallback = keyboard_without_premium(InlineKeyboardMarkup(inline_keyboard=[[item]]))
