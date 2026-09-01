@@ -104,7 +104,8 @@ def _admin_product_buttons(products: list, *, page: int) -> list[list]:
     return [
         [
             button(
-                f"{'🟢' if item.is_active else '⚫'} {compact_text(item.name, 25)} | "
+                f"{item.emoji} {'🟢' if item.is_active else '⚫'} "
+                f"{compact_text(item.name, 25)} | "
                 f"{money(item.price)}",
                 callback_data=AdminCallback(
                     section="products", action="detail", entity_id=item.id, page=page
