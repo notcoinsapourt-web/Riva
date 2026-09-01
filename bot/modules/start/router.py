@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
 from bot.core.formatting import h, money
-from bot.core.ui import button, edit_or_send, keyboard, persistent_home_keyboard
+from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.models import User
 from bot.services.channels import ChannelService
 from bot.services.menu import MenuService
@@ -158,5 +158,3 @@ async def show_home(event: Message | CallbackQuery, *, session: AsyncSession, us
         text,
         reply_markup=await MenuService(session).main(is_admin=is_admin),
     )
-    if isinstance(event, Message):
-        await event.answer("منوی سریع فعال شد.", reply_markup=persistent_home_keyboard())

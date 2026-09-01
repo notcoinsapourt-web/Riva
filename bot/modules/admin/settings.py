@@ -13,7 +13,11 @@ from bot.core.emojis import (
     verify_custom_emoji_button_access,
 )
 from bot.core.formatting import h
-from bot.core.states import AdminModuleEditState, AdminSettingsEditState
+from bot.core.states import (
+    AdminModuleEditState,
+    AdminPaymentMethodState,
+    AdminSettingsEditState,
+)
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.models import User
 from bot.modules.admin.common import protected_router
@@ -75,37 +79,167 @@ async def settings_list(callback: CallbackQuery, session: AsyncSession) -> None:
             )
         ]
     )
+    await edit_or_send(
+        callback,
+        "<b>⚙️ تنظیمات فروشگاه</b>\n\n" + "\n".join(lines),
+        reply_markup=keyboard(*rows),
+    )
 
 
 @router.callback_query(AdminCallback.filter((F.section == "settings") & (F.action == "wallet")))
 async def wallet_settings(callback: CallbackQuery, session: AsyncSession) -> None:
     service = SettingsService(session)
-    rows = []
-    lines = []
-    for index, (key, (label, _)) in enumerate(WALLET_SETTINGS.items(), start=1):
-        value = await service.get(key)
-        preview = value if len(value) <= 35 else value[:32] + "…"
-        lines.append(f"{index}. <b>{h(label)}:</b> <code>{h(preview or '—')}</code>")
-        rows.append(
+    card_number = await service.get("wallet_card_number")
+    card_enabled = await service.get_bool("wallet_card_enabled")
+    crypto_address = await service.get("wallet_crypto_address")
+    crypto_enabled = await service.get_bool("wallet_crypto_enabled")
+    await edit_or_send(
+        callback,
+        "<b>💳 روش‌های شارژ دستی</b>\n\n"
+        f"کارت‌به‌کارت: <b>{'🟢 فعال' if card_enabled else '⚫ غیرفعال'}</b>\n"
+        f"شماره کارت: <code>{h(card_number or 'تنظیم نشده')}</code>\n\n"
+        f"ارز دیجیتال: <b>{'🟢 فعال' if crypto_enabled else '⚫ غیرفعال'}</b>\n"
+        f"آدرس: <code>{h(crypto_address or 'تنظیم نشده')}</code>\n\n"
+        "روش پرداخت را با دکمه‌های زیر اضافه یا ویرایش کنید.",
+        reply_markup=keyboard(
             [
                 button(
-                    f"✏️ {label}",
-                    callback_data=AdminCallback(section="settings", action=f"wedit_{index}").pack(),
+                    "➕ افزودن/ویرایش کارت",
+                    callback_data=AdminCallback(section="settings", action="add_card").pack(),
+                    style="success",
+                ),
+                button(
+                    "فعال/غیرفعال کارت",
+                    callback_data=AdminCallback(section="settings", action="toggle_card").pack(),
+                ),
+            ],
+            [
+                button(
+                    "➕ افزودن/ویرایش ارز",
+                    callback_data=AdminCallback(section="settings", action="add_crypto").pack(),
+                    style="success",
+                ),
+                button(
+                    "فعال/غیرفعال ارز",
+                    callback_data=AdminCallback(section="settings", action="toggle_crypto").pack(),
+                ),
+            ],
+            [
+                button(
+                    "↩️ تنظیمات",
+                    callback_data=AdminCallback(section="settings", action="list").pack(),
+                )
+            ],
+        ),
+    )
+
+
+@router.callback_query(
+    AdminCallback.filter((F.section == "settings") & F.action.in_({"toggle_card", "toggle_crypto"}))
+)
+async def wallet_method_toggle(
+    callback: CallbackQuery, callback_data: AdminCallback, session: AsyncSession
+) -> None:
+    method = callback_data.action.removeprefix("toggle_")
+    settings = SettingsService(session)
+    key = f"wallet_{method}_enabled"
+    await settings.set(key, not await settings.get_bool(key), value_type="bool")
+    await wallet_settings(callback, session)
+
+
+@router.callback_query(AdminCallback.filter((F.section == "settings") & (F.action == "add_card")))
+async def card_setup_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminPaymentMethodState.card_number)
+    await edit_or_send(callback, "شماره کارت را فقط به صورت عدد ارسال کنید.")
+
+
+@router.message(AdminPaymentMethodState.card_number, F.text)
+async def card_number(message: Message, state: FSMContext) -> None:
+    number = message.text.replace(" ", "").replace("-", "").strip()
+    if not number.isdigit() or not 12 <= len(number) <= 24:
+        await message.answer("شماره کارت معتبر نیست؛ دوباره ارسال کنید.")
+        return
+    await state.update_data(card_number=number)
+    await state.set_state(AdminPaymentMethodState.card_holder)
+    await message.answer("نام صاحب کارت را ارسال کنید.")
+
+
+@router.message(AdminPaymentMethodState.card_holder, F.text)
+async def card_holder(message: Message, state: FSMContext) -> None:
+    await state.update_data(card_holder=message.text.strip())
+    await state.set_state(AdminPaymentMethodState.card_text)
+    await message.answer(
+        "متن دلخواه راهنمای کارت‌به‌کارت را ارسال کنید. ایموجی Premium داخل متن حفظ می‌شود."
+    )
+
+
+@router.message(AdminPaymentMethodState.card_text, F.text)
+async def card_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    settings = SettingsService(session)
+    await settings.set("wallet_card_number", data["card_number"])
+    await settings.set("wallet_card_holder", data["card_holder"])
+    await settings.set("wallet_card_text", message.html_text.strip())
+    await settings.set("wallet_card_enabled", True, value_type="bool")
+    await state.clear()
+    await message.answer(
+        "✅ کارت‌به‌کارت ذخیره و فعال شد.",
+        reply_markup=keyboard(
+            [
+                button(
+                    "روش‌های شارژ",
+                    callback_data=AdminCallback(section="settings", action="wallet").pack(),
                 )
             ]
-        )
-    rows.append(
-        [button("↩️ تنظیمات", callback_data=AdminCallback(section="settings", action="list").pack())]
+        ),
     )
-    await edit_or_send(
-        callback,
-        "<b>💳 تنظیمات شارژ دستی</b>\n\n" + "\n".join(lines),
-        reply_markup=keyboard(*rows),
+
+
+@router.callback_query(AdminCallback.filter((F.section == "settings") & (F.action == "add_crypto")))
+async def crypto_setup_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminPaymentMethodState.crypto_network)
+    await edit_or_send(callback, "نام شبکه ارز دیجیتال را ارسال کنید؛ مثال: <code>TRC20</code>")
+
+
+@router.message(AdminPaymentMethodState.crypto_network, F.text)
+async def crypto_network(message: Message, state: FSMContext) -> None:
+    await state.update_data(crypto_network=message.text.strip())
+    await state.set_state(AdminPaymentMethodState.crypto_address)
+    await message.answer("آدرس کیف پول ارز دیجیتال را ارسال کنید.")
+
+
+@router.message(AdminPaymentMethodState.crypto_address, F.text)
+async def crypto_address(message: Message, state: FSMContext) -> None:
+    address = message.text.strip()
+    if len(address) < 10:
+        await message.answer("آدرس واردشده معتبر نیست؛ دوباره ارسال کنید.")
+        return
+    await state.update_data(crypto_address=address)
+    await state.set_state(AdminPaymentMethodState.crypto_text)
+    await message.answer(
+        "متن دلخواه راهنمای پرداخت ارزی را ارسال کنید. ایموجی Premium داخل متن حفظ می‌شود."
     )
-    await edit_or_send(
-        callback,
-        "<b>⚙️ تنظیمات فروشگاه</b>\n\n" + "\n".join(lines),
-        reply_markup=keyboard(*rows),
+
+
+@router.message(AdminPaymentMethodState.crypto_text, F.text)
+async def crypto_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    settings = SettingsService(session)
+    await settings.set("wallet_crypto_network", data["crypto_network"])
+    await settings.set("wallet_crypto_address", data["crypto_address"])
+    await settings.set("wallet_crypto_text", message.html_text.strip())
+    await settings.set("wallet_crypto_enabled", True, value_type="bool")
+    await state.clear()
+    await message.answer(
+        "✅ پرداخت ارز دیجیتال ذخیره و فعال شد.",
+        reply_markup=keyboard(
+            [
+                button(
+                    "روش‌های شارژ",
+                    callback_data=AdminCallback(section="settings", action="wallet").pack(),
+                )
+            ]
+        ),
     )
 
 

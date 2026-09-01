@@ -84,3 +84,12 @@ class WalletDepositState(StatesGroup):
 
 class AdminChannelState(StatesGroup):
     channel = State()
+
+
+class AdminPaymentMethodState(StatesGroup):
+    card_number = State()
+    card_holder = State()
+    card_text = State()
+    crypto_network = State()
+    crypto_address = State()
+    crypto_text = State()
