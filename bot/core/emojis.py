@@ -164,18 +164,6 @@ def remember_button_fallback(
     _BUTTON_FALLBACKS[(callback_data or "", text, custom_emoji_id)] = fallback_text
 
 
-def inline_button_fallback(item: InlineKeyboardButton) -> str:
-    """Return the Unicode label kept for a premium inline button."""
-
-    emoji_id = item.icon_custom_emoji_id
-    if not emoji_id:
-        return item.text
-    return _BUTTON_FALLBACKS.get(
-        (item.callback_data or "", item.text, emoji_id),
-        item.text,
-    )
-
-
 def reply_button(text: str, *, emoji_key: str | None = None) -> KeyboardButton:
     resolved = resolve_button_emoji(text, emoji_key=emoji_key)
     if resolved.custom_emoji_id:
@@ -281,7 +269,10 @@ def _inline_without_premium(item: InlineKeyboardButton) -> InlineKeyboardButton:
     emoji_id = item.icon_custom_emoji_id
     if not emoji_id:
         return item
-    fallback = inline_button_fallback(item)
+    fallback = _BUTTON_FALLBACKS.get(
+        (item.callback_data or "", item.text, emoji_id),
+        item.text,
+    )
     return item.model_copy(update={"text": fallback, "icon_custom_emoji_id": None})
 
 

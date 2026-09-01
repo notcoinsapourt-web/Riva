@@ -1,27 +1,15 @@
 from __future__ import annotations
 
-import html
-import logging
-
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InputRichMessage,
     Message,
     ReplyKeyboardMarkup,
 )
 
-from bot.core.emojis import (
-    inline_button_fallback,
-    keyboard_without_premium,
-    remember_button_fallback,
-    reply_button,
-    resolve_button_emoji,
-)
-
-logger = logging.getLogger(__name__)
+from bot.core.emojis import remember_button_fallback, reply_button, resolve_button_emoji
 
 
 def button(
@@ -74,20 +62,9 @@ async def edit_or_send(
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> Message | None:
-    rich_message = _rich_message_with_buttons(text, reply_markup)
     if isinstance(event, CallbackQuery):
         await event.answer()
         if isinstance(event.message, Message):
-            if rich_message is not None:
-                try:
-                    return await event.message.edit_text(rich_message=rich_message)
-                except TelegramBadRequest as exc:
-                    if "message is not modified" in str(exc).lower():
-                        return event.message
-                    logger.warning(
-                        "Rich RTL keyboard was rejected; using standard keyboard: %s", exc
-                    )
-                    reply_markup = keyboard_without_premium(reply_markup)  # type: ignore[assignment]
             try:
                 return await event.message.edit_text(text, reply_markup=reply_markup)
             except TelegramBadRequest as exc:
@@ -98,76 +75,7 @@ async def edit_or_send(
                 await event.message.delete()
                 return await event.message.answer(text, reply_markup=reply_markup)
         return None
-    if rich_message is not None:
-        try:
-            return await event.bot.send_rich_message(
-                chat_id=event.chat.id,
-                rich_message=rich_message,
-            )
-        except TelegramBadRequest as exc:
-            logger.warning(
-                "Rich RTL keyboard was rejected; using standard keyboard: %s", exc
-            )
-            reply_markup = keyboard_without_premium(reply_markup)  # type: ignore[assignment]
     return await event.answer(text, reply_markup=reply_markup)
-
-
-def _rich_message_with_buttons(
-    text: str,
-    reply_markup: InlineKeyboardMarkup | None,
-) -> InputRichMessage | None:
-    """Embed premium emoji in RTL button text using Bot API 10.3 Rich Messages.
-
-    Standard ``icon_custom_emoji_id`` is rendered on the wrong physical side by
-    some Telegram clients for Persian labels. Rich buttons keep the emoji inside
-    their RTL text, so its visual position is deterministic. Unsupported button
-    types continue to use the ordinary inline-keyboard path.
-    """
-
-    if reply_markup is None:
-        return None
-    buttons = [item for row in reply_markup.inline_keyboard for item in row]
-    if not any(item.icon_custom_emoji_id for item in buttons):
-        return None
-    if any(not item.callback_data for item in buttons):
-        return None
-
-    rows: list[str] = []
-    for row in reply_markup.inline_keyboard:
-        rendered: list[str] = []
-        for item in row:
-            label = item.text.lstrip("\u200e\u200f")
-            if item.icon_custom_emoji_id:
-                fallback = inline_button_fallback(item)
-                alternative = _leading_button_emoji(fallback) or "✨"
-                icon = (
-                    f'<tg-emoji emoji-id="{html.escape(item.icon_custom_emoji_id, quote=True)}">'
-                    f"{html.escape(alternative)}</tg-emoji>&nbsp;"
-                )
-            else:
-                icon = ""
-            style = (
-                f' style="{html.escape(item.style, quote=True)}"' if item.style else ""
-            )
-            rendered.append(
-                f'<tg-button type="callback_data"{style} '
-                f'data="{html.escape(item.callback_data or "", quote=True)}">'
-                f"{icon}{html.escape(label)}</tg-button>"
-            )
-        rows.append(f'<tg-button-row align="right">{"".join(rendered)}</tg-button-row>')
-
-    return InputRichMessage(
-        html=f"<p>{text}</p>{''.join(rows)}",
-        is_rtl=True,
-        skip_entity_detection=True,
-    )
-
-
-def _leading_button_emoji(text: str) -> str | None:
-    token, separator, _ = text.partition(" ")
-    if not separator or any(character.isalnum() for character in token):
-        return None
-    return token
 
 
 async def replace_media_message(
