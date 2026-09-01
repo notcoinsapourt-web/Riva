@@ -72,6 +72,7 @@ async def home_callback(
 
 @router.callback_query(NavCallback.filter(F.action == "profile"))
 async def profile(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
+    await SettingsService(session).require_module("profile")
     user = await UserService(session).get_by_id(db_user.id)
     currency = await SettingsService(session).get("currency", "تومان")
     text = (
@@ -92,7 +93,8 @@ async def profile(callback: CallbackQuery, session: AsyncSession, db_user: User)
 
 
 @router.callback_query(NavCallback.filter(F.action == "rules"))
-async def rules(callback: CallbackQuery) -> None:
+async def rules(callback: CallbackQuery, session: AsyncSession) -> None:
+    await SettingsService(session).require_module("rules")
     await edit_or_send(
         callback,
         "<b>📄 راهنما و قوانین خرید</b>\n\n"

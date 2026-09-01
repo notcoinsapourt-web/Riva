@@ -250,6 +250,24 @@ async def test_core_module_cannot_be_disabled(database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_profile_and_rules_are_editable_modules(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=())
+    await seed_database(database.session_factory, settings)
+    async with database.session_factory() as session:
+        service = SettingsService(session)
+        modules = {item.name: item for item in await service.modules()}
+        assert modules["profile"].menu_text == "حساب کاربری"
+        assert modules["profile"].emoji == "👤"
+        assert modules["rules"].menu_text == "راهنما و قوانین"
+        assert modules["rules"].emoji == "📄"
+
+        profile = await service.toggle_module("profile")
+        rules = await service.toggle_module("rules")
+        assert profile.is_enabled is False
+        assert rules.is_enabled is False
+
+
+@pytest.mark.asyncio
 async def test_catalog_seed_is_complete_and_idempotent(database) -> None:
     settings = AppSettings(bot_token="123456:TEST", admin_ids=())
     await seed_database(database.session_factory, settings)

@@ -26,11 +26,13 @@ DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
 DEFAULT_MODULES: tuple[tuple[str, str, bool, bool, int, str | None, str | None], ...] = (
     ("catalog", "فروشگاه", True, True, 10, "فروشگاه", "🛍"),
     ("orders", "سفارش‌ها", True, True, 20, "سفارش‌های من", "📦"),
-    ("wallet", "کیف پول", True, False, 30, "کیف پول", "💰"),
-    ("referral", "دعوت دوستان", True, False, 40, "دعوت دوستان", "🎁"),
-    ("tickets", "پشتیبانی", True, False, 50, "پشتیبانی", "🎧"),
-    ("notifications", "اعلان‌ها", True, False, 60, None, "🔔"),
-    ("payments", "پرداخت آنلاین", False, False, 70, None, "💳"),
+    ("referral", "دعوت دوستان", True, False, 30, "دعوت دوستان", "🎁"),
+    ("profile", "حساب کاربری", True, False, 40, "حساب کاربری", "👤"),
+    ("rules", "راهنما و قوانین", True, False, 50, "راهنما و قوانین", "📄"),
+    ("wallet", "کیف پول", True, False, 60, "کیف پول", "💰"),
+    ("tickets", "پشتیبانی", True, False, 70, "پشتیبانی", "🎧"),
+    ("notifications", "اعلان‌ها", True, False, 80, None, "🔔"),
+    ("payments", "پرداخت آنلاین", False, False, 90, None, "💳"),
 )
 
 

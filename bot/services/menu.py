@@ -13,6 +13,8 @@ MODULE_ACTIONS = {
     "wallet": "wallet",
     "referral": "referral",
     "tickets": "tickets",
+    "profile": "profile",
+    "rules": "rules",
 }
 
 
@@ -54,20 +56,9 @@ class MenuService:
         if first_pair:
             rows.append(first_pair)
 
-        rows.append(
-            [
-                button(
-                    "👤 حساب کاربری",
-                    callback_data=NavCallback(action="profile").pack(),
-                    style="primary",
-                ),
-                button(
-                    "📄 راهنما و قوانین",
-                    callback_data=NavCallback(action="rules").pack(),
-                    style="primary",
-                ),
-            ]
-        )
+        account_pair = [items.pop(name) for name in ("profile", "rules") if name in items]
+        if account_pair:
+            rows.append(account_pair)
 
         bottom_pair: list[InlineKeyboardButton] = []
         for name in ("wallet", "tickets"):
