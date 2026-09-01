@@ -371,6 +371,8 @@ async def test_wallet_destinations_seed_once_and_admin_edits_persist(database) -
         assert values["wallet_card_enabled"] == "true"
         assert values["wallet_card_number"] == "6219861487954959"
         assert values["wallet_card_holder"] == "علیرضا"
+        assert "به مدت یک ساعت اعتبار دارد" in values["wallet_card_text"]
+        assert "امکان برداشت وجه از کیف پول وجود ندارد" in values["wallet_card_text"]
         assert values["wallet_crypto_enabled"] == "true"
         assert values["wallet_crypto_network"] == "BEP20"
         assert values["wallet_crypto_address"] == ("0xd7ab9C72A65D036D8438fD208578AE1FAd07dF7e")

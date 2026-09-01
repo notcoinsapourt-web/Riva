@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, Message
@@ -13,6 +16,7 @@ from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import DepositMethod
 from bot.database.models import User
 from bot.services.deposits import DepositService
+from bot.services.exchange_rates import ExchangeRateService
 from bot.services.notifications import NotificationService
 from bot.services.settings import SettingsService
 from bot.services.users import UserService
@@ -101,27 +105,56 @@ async def deposit_start(
         if not await settings.get_bool("wallet_card_enabled") or not card_number:
             raise ValidationError("واریز کارت در حال حاضر غیرفعال است.")
         destination = (
-            f"مبلغ شارژ: <b>{money(amount)}</b>\n\n"
-            f"شماره کارت: <code>{h(card_number)}</code>\n"
-            f"به نام: <b>{h(await settings.get('wallet_card_holder', '—'))}</b>\n\n"
+            f"برای افزایش موجودی، مبلغ <b>{money(amount)}</b> را به شماره کارت زیر "
+            "واریز کنید 👇\n\n"
+            "<code>━━━━━━━━━━━━━━━━</code>\n"
+            f"<code>{h(card_number)}</code>\n"
+            f"<b>{h(await settings.get('wallet_card_holder', '—'))}</b>\n"
+            "<code>━━━━━━━━━━━━━━━━</code>\n\n"
             f"{await settings.get('wallet_card_text')}"
         )
         destination_value = card_number
         copy_label = "📋 کپی شماره کارت"
+        copy_amount_value = str(amount)
+        copy_amount_label = "📋 کپی مبلغ"
+        quote_expires_at = datetime.now(UTC).timestamp() + 3600
+        state_values: dict[str, object] = {}
     else:
         crypto_address = await settings.get("wallet_crypto_address")
         if not await settings.get_bool("wallet_crypto_enabled") or not crypto_address:
             raise ValidationError("واریز ارز دیجیتال در حال حاضر غیرفعال است.")
+        quote = await ExchangeRateService().usdt_toman(amount)
+        network = await settings.get("wallet_crypto_network", "BEP20")
+        local_time = quote.fetched_at.astimezone(ZoneInfo("Asia/Tehran")).strftime("%H:%M:%S")
         destination = (
             f"مبلغ شارژ درخواستی: <b>{money(amount)}</b>\n\n"
+            f"مبلغ قابل پرداخت: <b>{quote.usdt_text} USDT</b>\n"
+            f"نرخ لحظه‌ای هر تتر: <b>{money(int(quote.rate_toman))}</b>\n"
+            f"زمان محاسبه: <b>{local_time}</b> به وقت تهران\n"
+            f"منبع نرخ: <b>{h(quote.source)}</b>\n\n"
             "ارز: <b>USDT</b>\n"
-            f"شبکه: <b>{h(await settings.get('wallet_crypto_network', 'BEP20'))}</b>\n"
+            f"شبکه: <b>{h(network)}</b>\n"
             f"آدرس: <code>{h(crypto_address)}</code>\n\n"
-            f"{await settings.get('wallet_crypto_text')}"
+            f"{await settings.get('wallet_crypto_text')}\n\n"
+            "⏱ این نرخ و مقدار USDT تا ۱۵ دقیقه معتبر است. مبلغ را دقیقاً مطابق "
+            "عدد بالا ارسال کنید."
         )
         destination_value = crypto_address
         copy_label = "📋 کپی آدرس کیف پول"
-    await state.update_data(deposit_method=method.value)
+        copy_amount_value = quote.usdt_text
+        copy_amount_label = "📋 کپی مبلغ USDT"
+        quote_expires_at = datetime.now(UTC).timestamp() + 900
+        state_values = {
+            "crypto_amount": quote.usdt_text,
+            "crypto_rate_toman": str(quote.rate_toman),
+            "crypto_rate_source": quote.source,
+            "crypto_network": network,
+        }
+    await state.update_data(
+        deposit_method=method.value,
+        quote_expires_at=quote_expires_at,
+        **state_values,
+    )
     await state.set_state(WalletDepositState.confirming)
     await edit_or_send(
         callback,
@@ -131,8 +164,8 @@ async def deposit_start(
         reply_markup=keyboard(
             [
                 InlineKeyboardButton(
-                    text="📋 کپی مبلغ",
-                    copy_text=CopyTextButton(text=str(amount)),
+                    text=copy_amount_label,
+                    copy_text=CopyTextButton(text=copy_amount_value),
                 ),
                 InlineKeyboardButton(
                     text=copy_label,
@@ -180,10 +213,11 @@ async def deposit_amount(message: Message, session: AsyncSession, state: FSMCont
     if await settings.get_bool("wallet_crypto_enabled") and await settings.get(
         "wallet_crypto_address"
     ):
+        network = await settings.get("wallet_crypto_network", "BEP20")
         rows.append(
             [
                 button(
-                    "₮ تتر USDT (BEP20)",
+                    f"₮ تتر USDT ({network})",
                     callback_data=DepositCallback(action="start", method="crypto").pack(),
                     style="success",
                 )
@@ -206,11 +240,30 @@ async def deposit_paid(
     if int(data.get("amount", 0)) <= 0 or data.get("deposit_method") != callback_data.method:
         await callback.answer("اطلاعات پرداخت منقضی شده است؛ دوباره شروع کنید.", show_alert=True)
         return
+    if datetime.now(UTC).timestamp() > float(data.get("quote_expires_at", 0)):
+        await state.clear()
+        await edit_or_send(
+            callback,
+            "<b>⏱ مهلت پرداخت تمام شد</b>\n\n"
+            "برای دریافت اطلاعات و نرخ تازه، افزایش موجودی را دوباره شروع کنید.",
+            reply_markup=keyboard(
+                [
+                    button(
+                        "➕ شروع دوباره",
+                        callback_data=NavCallback(action="topup").pack(),
+                        style="success",
+                    )
+                ]
+            ),
+        )
+        return
     if callback_data.method == DepositMethod.CRYPTO.value:
         await state.set_state(WalletDepositState.transaction_hash)
         await edit_or_send(
             callback,
-            "<b>🔗 هش تراکنش</b>\n\nهش یا شناسه تراکنش USDT روی شبکه BEP20 را ارسال کنید.",
+            "<b>🔗 هش تراکنش</b>\n\n"
+            f"هش یا شناسه تراکنش <b>{h(data.get('crypto_amount'))} USDT</b> روی شبکه "
+            f"<b>{h(data.get('crypto_network', 'BEP20'))}</b> را ارسال کنید.",
             reply_markup=keyboard(
                 [button("لغو", callback_data=NavCallback(action="wallet").pack(), style="danger")]
             ),
@@ -266,7 +319,14 @@ async def deposit_proof(
         f"<b>💳 درخواست شارژ جدید</b>\n\n"
         f"شماره: <code>{request.number}</code>\n"
         f"مبلغ: <b>{money(request.amount)}</b>\n"
-        f"کاربر: <code>{db_user.telegram_id}</code>\n\n"
+        f"کاربر: <code>{db_user.telegram_id}</code>"
+        + (
+            f"\nمعادل اعلام‌شده: <b>{h(data.get('crypto_amount'))} USDT</b>"
+            f"\nنرخ: <b>{h(data.get('crypto_rate_toman'))} تومان</b>"
+            if data.get("deposit_method") == DepositMethod.CRYPTO.value
+            else ""
+        )
+        + "\n\n"
         "از پنل مدیریت ← شارژهای دستی بررسی کنید."
     )
     await message.answer(

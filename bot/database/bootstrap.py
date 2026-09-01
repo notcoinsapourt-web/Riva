@@ -42,8 +42,14 @@ DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
     ("wallet_card_holder", "علیرضا", "str", False, "نام صاحب کارت"),
     (
         "wallet_card_text",
-        "مبلغ نمایش‌داده‌شده را دقیق واریز کنید. سپس تصویر واضح رسید را ارسال کنید؛ "
-        "مسئولیت واریز اشتباه بر عهده پرداخت‌کننده است.",
+        "❌ این درخواست به مدت یک ساعت اعتبار دارد؛ پس از آن امکان پرداخت این "
+        "درخواست وجود ندارد.\n"
+        "‼️ مبلغ باید دقیقاً همان مبلغی باشد که در بالا نوشته شده است.\n"
+        "‼️ امکان برداشت وجه از کیف پول وجود ندارد.\n"
+        "‼️ مسئولیت واریز اشتباه با شماست.\n\n"
+        "بعد از پرداخت، دکمه «پرداخت کردم | ارسال رسید» را بزنید و تصویر رسید را "
+        "ارسال کنید.\n"
+        "💵 بعد از تأیید پرداخت توسط مدیریت، کیف پول شما شارژ می‌شود.",
         "str",
         False,
         "راهنمای کارت",
@@ -144,6 +150,23 @@ async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
                 value_type="str",
                 is_public=False,
                 description="نسخه اولیه روش‌های شارژ دستی",
+            )
+        )
+
+    card_copy_version = "20260901-reference-card-v1"
+    if "wallet_card_copy_version" not in existing:
+        card_text = existing_by_key.get("wallet_card_text")
+        if card_text is not None:
+            card_text.value = next(
+                value for key, value, *_rest in DEFAULT_SETTINGS if key == "wallet_card_text"
+            )
+        session.add(
+            Setting(
+                key="wallet_card_copy_version",
+                value=card_copy_version,
+                value_type="str",
+                is_public=False,
+                description="نسخه متن راهنمای کارت‌به‌کارت",
             )
         )
 
