@@ -11,6 +11,7 @@ from bot.database.base import Base
 from bot.database.catalog_seed import DEFAULT_CATEGORIES, DEFAULT_PRODUCTS
 from bot.database.enums import UserRole
 from bot.database.models import Admin, Category, Module, Product, Setting, User, Wallet
+from bot.database.product_content import PRODUCT_CONTENT_VERSION
 from bot.database.session import Database
 
 DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
@@ -36,20 +37,34 @@ DEFAULT_SETTINGS: tuple[tuple[str, str, str, bool, str], ...] = (
     ("referral_reward", "0", "int", True, "پاداش دعوت پس از اولین سفارش تکمیل‌شده"),
     ("payments_enabled", "false", "bool", False, "فعال‌سازی نمایشی پرداخت"),
     ("maintenance_mode", "false", "bool", True, "حالت تعمیرات"),
-    ("wallet_card_enabled", "false", "bool", False, "فعال بودن شارژ کارت"),
-    ("wallet_card_number", "", "str", False, "شماره کارت شارژ دستی"),
-    ("wallet_card_holder", "", "str", False, "نام صاحب کارت"),
+    ("wallet_card_enabled", "true", "bool", False, "فعال بودن شارژ کارت"),
+    ("wallet_card_number", "6219861487954959", "str", False, "شماره کارت شارژ دستی"),
+    ("wallet_card_holder", "علیرضا", "str", False, "نام صاحب کارت"),
     (
         "wallet_card_text",
-        "پس از واریز، مبلغ و تصویر فیش را ارسال کنید.",
+        "مبلغ نمایش‌داده‌شده را دقیق واریز کنید. سپس تصویر واضح رسید را ارسال کنید؛ "
+        "مسئولیت واریز اشتباه بر عهده پرداخت‌کننده است.",
         "str",
         False,
         "راهنمای کارت",
     ),
-    ("wallet_crypto_enabled", "false", "bool", False, "فعال بودن شارژ رمزارز"),
-    ("wallet_crypto_network", "TRC20", "str", False, "شبکه رمزارز"),
-    ("wallet_crypto_address", "", "str", False, "آدرس کیف پول رمزارز"),
-    ("wallet_crypto_text", "هش تراکنش و تصویر رسید را ارسال کنید.", "str", False, "راهنمای رمزارز"),
+    ("wallet_crypto_enabled", "true", "bool", False, "فعال بودن شارژ رمزارز"),
+    ("wallet_crypto_network", "BEP20", "str", False, "شبکه رمزارز"),
+    (
+        "wallet_crypto_address",
+        "0xd7ab9C72A65D036D8438fD208578AE1FAd07dF7e",
+        "str",
+        False,
+        "آدرس کیف پول رمزارز",
+    ),
+    (
+        "wallet_crypto_text",
+        "فقط USDT را روی شبکه BEP20 ارسال کنید. انتخاب شبکه اشتباه باعث از دست رفتن "
+        "دارایی می‌شود؛ هش تراکنش و تصویر رسید لازم است.",
+        "str",
+        False,
+        "راهنمای رمزارز",
+    ),
     ("forced_join_enabled", "false", "bool", False, "قفل عضویت کانال"),
 )
 
@@ -86,6 +101,7 @@ async def seed_database(
 async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
     existing_items = list((await session.scalars(select(Setting))).all())
     existing = {item.key for item in existing_items}
+    existing_by_key = {item.key: item for item in existing_items}
     overrides = {
         "shop_name": settings.shop_name,
         "support_username": settings.support_username,
@@ -106,6 +122,29 @@ async def _seed_settings(session: AsyncSession, settings: AppSettings) -> None:
     if legacy_welcome and legacy_welcome.value == "به فروشگاه دیجیتال Persian Shop خوش آمدید.":
         legacy_welcome.value = next(
             item[1] for item in DEFAULT_SETTINGS if item[0] == "welcome_text"
+        )
+
+    # Apply the requested payment destinations once. The version marker keeps
+    # later edits made by the owner in the admin panel intact across restarts.
+    wallet_seed_version = "20260901-guided-v2"
+    if "wallet_payment_seed_version" not in existing:
+        payment_defaults = {
+            key: value
+            for key, value, _value_type, _public, _description in DEFAULT_SETTINGS
+            if key.startswith("wallet_")
+        }
+        for key, value in payment_defaults.items():
+            item = existing_by_key.get(key)
+            if item is not None:
+                item.value = value
+        session.add(
+            Setting(
+                key="wallet_payment_seed_version",
+                value=wallet_seed_version,
+                value_type="str",
+                is_public=False,
+                description="نسخه اولیه روش‌های شارژ دستی",
+            )
         )
 
 
@@ -145,19 +184,33 @@ async def _seed_products(session: AsyncSession) -> None:
     categories = {
         category.name: category for category in (await session.scalars(select(Category))).all()
     }
-    existing = {
-        (item.category_id, item.name): item
-        for item in (await session.scalars(select(Product))).all()
+    existing_products = list((await session.scalars(select(Product))).all())
+    existing = {(item.category_id, item.name): item for item in existing_products}
+    existing_by_slug = {
+        item.photo_file_id.split("?", 1)[0].rsplit("/", 1)[-1].removesuffix(".jpg"): item
+        for item in existing_products
+        if item.photo_file_id and "/assets/products" in item.photo_file_id
     }
+    existing_by_position = {(item.category_id, item.sort_order): item for item in existing_products}
+    content_setting = await session.scalar(
+        select(Setting).where(Setting.key == "catalog_content_version")
+    )
+    refresh_content = content_setting is None or content_setting.value != PRODUCT_CONTENT_VERSION
     for product in DEFAULT_PRODUCTS:
         category = categories.get(product.category)
         if category is None:
             continue
-        current = existing.get((category.id, product.name))
+        current = (
+            existing_by_slug.get(product.image_slug)
+            or existing.get((category.id, product.name))
+            or existing_by_position.get((category.id, product.sort_order))
+        )
         if current is not None:
-            if current.photo_file_id and current.photo_file_id.startswith(
-                "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products/"
-            ):
+            if refresh_content:
+                current.name = product.name
+                current.description = product.description
+                current.input_prompt = product.input_prompt
+            if current.photo_file_id and "/assets/products" in current.photo_file_id:
                 current.photo_file_id = product.photo_url
             continue
         session.add(
@@ -172,6 +225,18 @@ async def _seed_products(session: AsyncSession) -> None:
                 sort_order=product.sort_order,
             )
         )
+    if content_setting is None:
+        session.add(
+            Setting(
+                key="catalog_content_version",
+                value=PRODUCT_CONTENT_VERSION,
+                value_type="str",
+                is_public=False,
+                description="نسخه متن اختصاصی محصولات",
+            )
+        )
+    elif refresh_content:
+        content_setting.value = PRODUCT_CONTENT_VERSION
 
 
 async def _seed_admins(session: AsyncSession, telegram_ids: Iterable[int]) -> None:

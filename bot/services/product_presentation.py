@@ -107,7 +107,15 @@ def parse_quantity(value: str) -> int:
 
 def order_requirements(product: ProductLike) -> tuple[str, str]:
     slug = product_slug(product)
-    if "comments" in slug:
+    configured_prompt = _clean_prompt(product.input_prompt)
+    generic_prompts = {
+        "اطلاعات لازم برای انجام سفارش را وارد کنید.",
+        "لینک عمومی پیج یا پست را ارسال کنید.",
+        "نام پلن و ایمیل حساب را ارسال کنید.",
+    }
+    if configured_prompt and configured_prompt not in generic_prompts:
+        prompt = configured_prompt
+    elif "comments" in slug:
         prompt = "لینک عمومی محتوا و متن کامنت‌های دلخواه را ارسال کنید."
     elif "poll-votes" in slug:
         prompt = "لینک نظرسنجی و شماره یا متن گزینه موردنظر را ارسال کنید."
@@ -144,7 +152,14 @@ def order_requirements(product: ProductLike) -> tuple[str, str]:
     if quantity_policy(product) is not None or slug.startswith(
         ("instagram-", "telegram-", "tiktok-", "youtube-", "social-")
     ):
-        safety = "این سرویس روی لینک عمومی انجام می‌شود و هیچ اطلاعات ورودی لازم ندارد."
+        safety = (
+            "سرویس فقط روی لینک عمومی انجام می‌شود؛ رمز عبور، کد ورود یا اطلاعات شخصی ارسال نکنید."
+        )
+    elif slug.startswith("digital-telegram-premium-"):
+        safety = (
+            "فعال‌سازی از طریق Gift انجام می‌شود؛ فقط نام کاربری لازم است و نباید شماره، "
+            "رمز عبور یا کد ورود ارسال کنید."
+        )
     else:
         safety = (
             "فقط ایمیل یا نام کاربری لازم را بفرستید؛ رمز عبور و کد ورود را داخل ربات "

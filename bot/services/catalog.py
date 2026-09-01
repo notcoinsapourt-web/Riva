@@ -52,6 +52,19 @@ class CatalogService:
             raise NotFoundError("محصول پیدا نشد یا غیرفعال شده است.")
         return product
 
+    async def search_products(self, query: str, *, limit: int = 12) -> list[Product]:
+        normalized = query.strip()
+        if not normalized:
+            return []
+        statement = (
+            select(Product)
+            .options(selectinload(Product.category))
+            .where(Product.name.ilike(f"%{normalized}%"))
+            .order_by(Product.category_id, Product.sort_order, Product.id)
+            .limit(limit)
+        )
+        return list((await self.session.scalars(statement)).all())
+
     async def create_category(self, name: str, description: str = "", emoji: str = "🗂") -> Category:
         if not name.strip():
             raise ValidationError("نام دسته‌بندی الزامی است.")
@@ -134,6 +147,7 @@ class CatalogService:
             "custom_emoji_id",
             "input_prompt",
             "is_active",
+            "sort_order",
         }
         for key, value in values.items():
             if key not in allowed:
@@ -143,6 +157,37 @@ class CatalogService:
             setattr(product, key, value)
         await self.session.commit()
         return product
+
+    async def reorder_product(self, product_id: int, direction: int) -> Product:
+        if direction not in {-1, 1}:
+            raise ValidationError("جهت جابه‌جایی نامعتبر است.")
+        product = await self.product(product_id, active_only=False)
+        siblings = await self.products(product.category_id, active_only=False)
+        index = next(i for i, item in enumerate(siblings) if item.id == product.id)
+        target_index = index + direction
+        if target_index < 0 or target_index >= len(siblings):
+            return product
+        target = siblings[target_index]
+        product.sort_order, target.sort_order = target.sort_order, product.sort_order
+        if product.sort_order == target.sort_order:
+            product.sort_order = target.sort_order + direction
+        await self.session.commit()
+        return await self.product(product.id, active_only=False)
+
+    async def move_product(self, product_id: int, category_id: int) -> Product:
+        product = await self.product(product_id, active_only=False)
+        await self.category(category_id, active_only=False)
+        max_order = (
+            await self.session.scalar(
+                select(func.max(Product.sort_order)).where(Product.category_id == category_id)
+            )
+            or 0
+        )
+        product.category_id = category_id
+        product.sort_order = max_order + 10
+        await self.session.commit()
+        self.session.expire(product, ["category"])
+        return await self.product(product.id, active_only=False)
 
     async def delete_product(self, product_id: int) -> None:
         product = await self.product(product_id, active_only=False)

@@ -16,6 +16,7 @@ from bot.core.formatting import compact_text, h, money
 from bot.core.states import (
     AdminCatalogEditState,
     AdminCategoryState,
+    AdminProductSearchState,
     AdminProductState,
 )
 from bot.core.ui import button, edit_or_send, keyboard
@@ -25,25 +26,50 @@ from bot.services.catalog import CatalogService
 from bot.services.logs import ActivityLogService
 
 router = protected_router("catalog")
+ADMIN_PRODUCT_PAGE_SIZE = 8
 
 
 @router.callback_query(AdminCallback.filter((F.section == "products") & (F.action == "list")))
 async def products_list(callback: CallbackQuery, session: AsyncSession) -> None:
-    products = await CatalogService(session).products(active_only=False)
-    rows = [
-        [
-            button(
-                f"{'🟢' if item.is_active else '⚫'} {compact_text(item.name, 24)}"
-                f" • {money(item.price)}",
-                callback_data=AdminCallback(
-                    section="products", action="detail", entity_id=item.id
-                ).pack(),
-            )
-        ]
-        for item in products[:30]
-    ]
+    service = CatalogService(session)
+    categories = await service.categories(active_only=False)
+    products = await service.products(active_only=False)
+    grouped = {category.id: [] for category in categories}
+    for product in products:
+        grouped.setdefault(product.category_id, []).append(product)
+    rows = []
+    for category in categories:
+        items = grouped.get(category.id, [])
+        active_count = sum(item.is_active for item in items)
+        rows.append(
+            [
+                button(
+                    f"{category.emoji} {category.name} · {len(items)} ({active_count} فعال)",
+                    callback_data=AdminCallback(
+                        section="products", action="category", entity_id=category.id
+                    ).pack(),
+                    custom_emoji_id=category.custom_emoji_id,
+                )
+            ]
+        )
     rows.extend(
         [
+            [
+                button(
+                    "🔍 جستجوی محصول",
+                    callback_data=AdminCallback(section="products", action="search").pack(),
+                )
+            ],
+            [
+                button(
+                    "🟢 فعال‌ها",
+                    callback_data=AdminCallback(section="products", action="active").pack(),
+                ),
+                button(
+                    "⚫ غیرفعال‌ها",
+                    callback_data=AdminCallback(section="products", action="inactive").pack(),
+                ),
+            ],
             [
                 button(
                     "➕ افزودن محصول",
@@ -62,7 +88,181 @@ async def products_list(callback: CallbackQuery, session: AsyncSession) -> None:
     await edit_or_send(
         callback,
         "<b>💎 مدیریت محصولات</b>\n\n"
-        + ("محصول موردنظر را انتخاب کنید." if products else "هنوز محصولی ثبت نشده است."),
+        + (
+            f"تعداد کل: <b>{len(products)}</b>\n"
+            f"فعال: <b>{sum(item.is_active for item in products)}</b> | "
+            f"غیرفعال: <b>{sum(not item.is_active for item in products)}</b>\n\n"
+            "ابتدا دسته‌بندی موردنظر را انتخاب کنید."
+            if products
+            else "هنوز محصولی ثبت نشده است."
+        ),
+        reply_markup=keyboard(*rows),
+    )
+
+
+def _admin_product_buttons(products: list, *, page: int) -> list[list]:
+    return [
+        [
+            button(
+                f"{'🟢' if item.is_active else '⚫'} {compact_text(item.name, 25)} | "
+                f"{money(item.price)}",
+                callback_data=AdminCallback(
+                    section="products", action="detail", entity_id=item.id, page=page
+                ).pack(),
+                custom_emoji_id=item.custom_emoji_id,
+            )
+        ]
+        for item in products
+    ]
+
+
+@router.callback_query(AdminCallback.filter((F.section == "products") & (F.action == "category")))
+async def products_by_category(
+    callback: CallbackQuery, callback_data: AdminCallback, session: AsyncSession
+) -> None:
+    service = CatalogService(session)
+    category = await service.category(callback_data.entity_id, active_only=False)
+    products = await service.products(category.id, active_only=False)
+    page = max(0, callback_data.page)
+    start = page * ADMIN_PRODUCT_PAGE_SIZE
+    visible = products[start : start + ADMIN_PRODUCT_PAGE_SIZE]
+    rows = _admin_product_buttons(visible, page=page)
+    paging = []
+    if page > 0:
+        paging.append(
+            button(
+                "◀️ قبلی",
+                callback_data=AdminCallback(
+                    section="products", action="category", entity_id=category.id, page=page - 1
+                ).pack(),
+            )
+        )
+    if start + ADMIN_PRODUCT_PAGE_SIZE < len(products):
+        paging.append(
+            button(
+                "بعدی ▶️",
+                callback_data=AdminCallback(
+                    section="products", action="category", entity_id=category.id, page=page + 1
+                ).pack(),
+            )
+        )
+    if paging:
+        rows.append(paging)
+    rows.extend(
+        [
+            [
+                button(
+                    "➕ افزودن محصول",
+                    callback_data=AdminCallback(section="products", action="add").pack(),
+                    style="success",
+                )
+            ],
+            [
+                button(
+                    "↩️ دسته‌های محصولات",
+                    callback_data=AdminCallback(section="products", action="list").pack(),
+                )
+            ],
+        ]
+    )
+    await edit_or_send(
+        callback,
+        f"<b>{h(category.emoji)} {h(category.name)}</b>\n\n"
+        f"محصولات: <b>{len(products)}</b>\n"
+        f"فعال: <b>{sum(item.is_active for item in products)}</b> | "
+        f"غیرفعال: <b>{sum(not item.is_active for item in products)}</b>\n"
+        f"صفحه: <b>{page + 1}</b>",
+        reply_markup=keyboard(*rows),
+    )
+
+
+@router.callback_query(
+    AdminCallback.filter((F.section == "products") & F.action.in_({"active", "inactive"}))
+)
+async def products_by_status(
+    callback: CallbackQuery, callback_data: AdminCallback, session: AsyncSession
+) -> None:
+    enabled = callback_data.action == "active"
+    products = [
+        item
+        for item in await CatalogService(session).products(active_only=False)
+        if item.is_active is enabled
+    ]
+    page = max(0, callback_data.page)
+    start = page * ADMIN_PRODUCT_PAGE_SIZE
+    visible = products[start : start + ADMIN_PRODUCT_PAGE_SIZE]
+    rows = _admin_product_buttons(visible, page=page)
+    paging = []
+    if page > 0:
+        paging.append(
+            button(
+                "◀️ قبلی",
+                callback_data=AdminCallback(
+                    section="products", action=callback_data.action, page=page - 1
+                ).pack(),
+            )
+        )
+    if start + ADMIN_PRODUCT_PAGE_SIZE < len(products):
+        paging.append(
+            button(
+                "بعدی ▶️",
+                callback_data=AdminCallback(
+                    section="products", action=callback_data.action, page=page + 1
+                ).pack(),
+            )
+        )
+    if paging:
+        rows.append(paging)
+    rows.append(
+        [
+            button(
+                "↩️ مدیریت محصولات",
+                callback_data=AdminCallback(section="products", action="list").pack(),
+            )
+        ]
+    )
+    await edit_or_send(
+        callback,
+        f"<b>{'🟢 محصولات فعال' if enabled else '⚫ محصولات غیرفعال'}</b>\n\n"
+        f"تعداد: <b>{len(products)}</b>",
+        reply_markup=keyboard(*rows),
+    )
+
+
+@router.callback_query(AdminCallback.filter((F.section == "products") & (F.action == "search")))
+async def product_search_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminProductSearchState.query)
+    await edit_or_send(
+        callback,
+        "<b>🔍 جستجوی محصول</b>\n\nبخشی از نام فارسی یا انگلیسی محصول را ارسال کنید.",
+        reply_markup=keyboard(
+            [
+                button(
+                    "لغو",
+                    callback_data=AdminCallback(section="products", action="list").pack(),
+                    style="danger",
+                )
+            ]
+        ),
+    )
+
+
+@router.message(AdminProductSearchState.query, F.text)
+async def product_search_result(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    products = await CatalogService(session).search_products(message.text)
+    await state.clear()
+    rows = _admin_product_buttons(products, page=0)
+    rows.append(
+        [
+            button(
+                "↩️ مدیریت محصولات",
+                callback_data=AdminCallback(section="products", action="list").pack(),
+            )
+        ]
+    )
+    await message.answer(
+        f"<b>نتیجه جستجو برای «{h(message.text)}»</b>\n\n"
+        + (f"{len(products)} محصول پیدا شد." if products else "محصولی پیدا نشد."),
         reply_markup=keyboard(*rows),
     )
 
@@ -136,6 +336,28 @@ async def product_detail(
         ],
         [
             button(
+                "⬆️ بالاتر",
+                callback_data=AdminCallback(
+                    section="products", action="up", entity_id=product.id
+                ).pack(),
+            ),
+            button(
+                "⬇️ پایین‌تر",
+                callback_data=AdminCallback(
+                    section="products", action="down", entity_id=product.id
+                ).pack(),
+            ),
+        ],
+        [
+            button(
+                "🗂 انتقال به دسته دیگر",
+                callback_data=AdminCallback(
+                    section="products", action="move", entity_id=product.id
+                ).pack(),
+            )
+        ],
+        [
+            button(
                 "🗑 حذف محصول",
                 callback_data=AdminCallback(
                     section="products", action="delete", entity_id=product.id
@@ -145,8 +367,13 @@ async def product_detail(
         ],
         [
             button(
-                "↩️ محصولات",
-                callback_data=AdminCallback(section="products", action="list").pack(),
+                "↩️ محصولات این دسته",
+                callback_data=AdminCallback(
+                    section="products",
+                    action="category",
+                    entity_id=product.category_id,
+                    page=callback_data.page,
+                ).pack(),
             )
         ],
     ]
@@ -160,6 +387,93 @@ async def product_detail(
         f"{h(product.description)}\n\n"
         f"<b>درخواست اطلاعات:</b> {h(product.input_prompt)}",
         reply_markup=keyboard(*rows),
+    )
+
+
+@router.callback_query(
+    AdminCallback.filter((F.section == "products") & F.action.in_({"up", "down"}))
+)
+async def product_reorder(
+    callback: CallbackQuery,
+    callback_data: AdminCallback,
+    session: AsyncSession,
+    db_user: User,
+) -> None:
+    direction = -1 if callback_data.action == "up" else 1
+    product = await CatalogService(session).reorder_product(callback_data.entity_id, direction)
+    await ActivityLogService(session).record(
+        "product.reordered",
+        actor_user_id=db_user.id,
+        entity_type="product",
+        entity_id=product.id,
+        details={"direction": callback_data.action},
+    )
+    await callback.answer("ترتیب محصول به‌روزرسانی شد.")
+    await product_detail(
+        callback,
+        AdminCallback(section="products", action="detail", entity_id=product.id),
+        session,
+    )
+
+
+@router.callback_query(AdminCallback.filter((F.section == "products") & (F.action == "move")))
+async def product_move_start(
+    callback: CallbackQuery, callback_data: AdminCallback, session: AsyncSession
+) -> None:
+    product = await CatalogService(session).product(callback_data.entity_id, active_only=False)
+    categories = await CatalogService(session).categories(active_only=False)
+    rows = [
+        [
+            button(
+                f"{item.emoji} {item.name}",
+                callback_data=AdminCallback(
+                    section="products", action="moveto", entity_id=product.id, page=item.id
+                ).pack(),
+                custom_emoji_id=item.custom_emoji_id,
+            )
+        ]
+        for item in categories
+        if item.id != product.category_id
+    ]
+    rows.append(
+        [
+            button(
+                "انصراف",
+                callback_data=AdminCallback(
+                    section="products", action="detail", entity_id=product.id
+                ).pack(),
+            )
+        ]
+    )
+    await edit_or_send(
+        callback,
+        f"<b>🗂 انتقال «{h(product.name)}»</b>\n\nدسته مقصد را انتخاب کنید.",
+        reply_markup=keyboard(*rows),
+    )
+
+
+@router.callback_query(AdminCallback.filter((F.section == "products") & (F.action == "moveto")))
+async def product_move_finish(
+    callback: CallbackQuery,
+    callback_data: AdminCallback,
+    session: AsyncSession,
+    db_user: User,
+) -> None:
+    product = await CatalogService(session).move_product(
+        callback_data.entity_id, callback_data.page
+    )
+    await ActivityLogService(session).record(
+        "product.moved",
+        actor_user_id=db_user.id,
+        entity_type="product",
+        entity_id=product.id,
+        details={"category_id": product.category_id},
+    )
+    await callback.answer("محصول به دسته جدید منتقل شد.")
+    await product_detail(
+        callback,
+        AdminCallback(section="products", action="detail", entity_id=product.id),
+        session,
     )
 
 

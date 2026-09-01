@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from bot.database.product_content import PRODUCT_CONTENT
 
 PRODUCT_IMAGE_BASE_URL = (
     "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products-v3"
@@ -821,4 +823,19 @@ DEFAULT_PRODUCTS: tuple[SeedProduct, ...] = (
         "social-linkedin-followers-500",
         80,
     ),
+)
+
+# Product copy is maintained separately so every catalog item can have its own
+# researched description and checkout requirements without making the pricing
+# seed difficult to review.
+DEFAULT_PRODUCTS = tuple(
+    replace(
+        product,
+        name=content.name or product.name,
+        description=content.description,
+        input_prompt=content.input_prompt,
+    )
+    if (content := PRODUCT_CONTENT.get(product.image_slug))
+    else product
+    for product in DEFAULT_PRODUCTS
 )

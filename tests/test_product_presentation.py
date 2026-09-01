@@ -43,4 +43,14 @@ def test_quantity_parser_accepts_persian_digits_and_rejects_invalid_values() -> 
 def test_order_requirements_are_specific_and_safe() -> None:
     prompt, safety = order_requirements(instagram_product())
     assert prompt == "نام کاربری یا لینک پیج عمومی اینستاگرام را ارسال کنید."
-    assert "اطلاعات ورودی لازم ندارد" in safety
+    assert "رمز عبور" in safety
+    assert "کد ورود" in safety
+
+
+def test_custom_order_prompt_has_priority_over_slug_fallback() -> None:
+    product = instagram_product()
+    product.input_prompt = "لینک استوری فعال و زمان انتشار را ارسال کنید."
+
+    prompt, _ = order_requirements(product)
+
+    assert prompt == product.input_prompt

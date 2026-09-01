@@ -78,6 +78,7 @@ class AdminAccessState(StatesGroup):
 
 class WalletDepositState(StatesGroup):
     amount = State()
+    confirming = State()
     transaction_hash = State()
     proof = State()
 
@@ -93,3 +94,7 @@ class AdminPaymentMethodState(StatesGroup):
     crypto_network = State()
     crypto_address = State()
     crypto_text = State()
+
+
+class AdminProductSearchState(StatesGroup):
+    query = State()

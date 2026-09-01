@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import DepositCallback, NavCallback
@@ -61,37 +61,20 @@ async def topup(callback: CallbackQuery, session: AsyncSession, state: FSMContex
     crypto = await settings.get_bool("wallet_crypto_enabled") and bool(
         await settings.get("wallet_crypto_address")
     )
-    rows = []
-    if card:
-        rows.append(
-            [
-                button(
-                    "💳 واریز کارت به کارت",
-                    callback_data=DepositCallback(action="start", method="card").pack(),
-                    style="success",
-                )
-            ]
-        )
-    if crypto:
-        rows.append(
-            [
-                button(
-                    "₿ واریز ارز دیجیتال",
-                    callback_data=DepositCallback(action="start", method="crypto").pack(),
-                    style="success",
-                )
-            ]
-        )
-    rows.append([button("↩️ کیف پول", callback_data=NavCallback(action="wallet").pack())])
+    if card or crypto:
+        await state.set_state(WalletDepositState.amount)
     await edit_or_send(
         callback,
         "<b>➕ افزایش موجودی</b>\n\n"
         + (
-            "روش واریز را انتخاب کنید. پس از بررسی مدیر، مبلغ به کیف پول افزوده می‌شود."
+            "ابتدا مبلغی را که می‌خواهید به کیف پول اضافه شود، به تومان و فقط به "
+            "صورت عدد ارسال کنید.\n\nمثال: <code>250000</code>"
             if card or crypto
             else "در حال حاضر روش شارژ دستی فعالی تعریف نشده است."
         ),
-        reply_markup=keyboard(*rows),
+        reply_markup=keyboard(
+            [button("↩️ کیف پول", callback_data=NavCallback(action="wallet").pack())]
+        ),
     )
 
 
@@ -107,48 +90,141 @@ async def deposit_start(
     except ValueError as exc:
         raise ValidationError("روش پرداخت نامعتبر است.") from exc
     settings = SettingsService(session)
+    data = await state.get_data()
+    amount = int(data.get("amount", 0))
+    if amount <= 0:
+        await callback.answer("ابتدا مبلغ شارژ را وارد کنید.", show_alert=True)
+        await topup(callback, session, state)
+        return
     if method == DepositMethod.CARD:
-        if not await settings.get_bool("wallet_card_enabled"):
+        card_number = await settings.get("wallet_card_number")
+        if not await settings.get_bool("wallet_card_enabled") or not card_number:
             raise ValidationError("واریز کارت در حال حاضر غیرفعال است.")
         destination = (
-            f"شماره کارت: <code>{h(await settings.get('wallet_card_number'))}</code>\n"
+            f"مبلغ شارژ: <b>{money(amount)}</b>\n\n"
+            f"شماره کارت: <code>{h(card_number)}</code>\n"
             f"به نام: <b>{h(await settings.get('wallet_card_holder', '—'))}</b>\n\n"
             f"{await settings.get('wallet_card_text')}"
         )
+        destination_value = card_number
+        copy_label = "📋 کپی شماره کارت"
     else:
-        if not await settings.get_bool("wallet_crypto_enabled"):
+        crypto_address = await settings.get("wallet_crypto_address")
+        if not await settings.get_bool("wallet_crypto_enabled") or not crypto_address:
             raise ValidationError("واریز ارز دیجیتال در حال حاضر غیرفعال است.")
         destination = (
-            f"شبکه: <b>{h(await settings.get('wallet_crypto_network', 'TRC20'))}</b>\n"
-            f"آدرس: <code>{h(await settings.get('wallet_crypto_address'))}</code>\n\n"
+            f"مبلغ شارژ درخواستی: <b>{money(amount)}</b>\n\n"
+            "ارز: <b>USDT</b>\n"
+            f"شبکه: <b>{h(await settings.get('wallet_crypto_network', 'BEP20'))}</b>\n"
+            f"آدرس: <code>{h(crypto_address)}</code>\n\n"
             f"{await settings.get('wallet_crypto_text')}"
         )
-    await state.set_state(WalletDepositState.amount)
-    await state.set_data({"deposit_method": method.value})
+        destination_value = crypto_address
+        copy_label = "📋 کپی آدرس کیف پول"
+    await state.update_data(deposit_method=method.value)
+    await state.set_state(WalletDepositState.confirming)
     await edit_or_send(
         callback,
-        f"<b>افزایش موجودی</b>\n\n{destination}\n\n"
-        "پس از واریز، مبلغ پرداختی را به تومان و فقط به صورت عدد ارسال کنید.",
+        f"<b>💳 اطلاعات پرداخت</b>\n\n{destination}\n\n"
+        "پس از پرداخت، دکمه زیر را بزنید و رسید را ارسال کنید. موجودی فقط پس از "
+        "بررسی و تأیید مدیریت افزایش می‌یابد.",
         reply_markup=keyboard(
-            [button("لغو", callback_data=NavCallback(action="topup").pack(), style="danger")]
+            [
+                InlineKeyboardButton(
+                    text="📋 کپی مبلغ",
+                    copy_text=CopyTextButton(text=str(amount)),
+                ),
+                InlineKeyboardButton(
+                    text=copy_label,
+                    copy_text=CopyTextButton(text=destination_value),
+                ),
+            ],
+            [
+                button(
+                    "✅ پرداخت کردم | ارسال رسید",
+                    callback_data=DepositCallback(action="paid", method=method.value).pack(),
+                    style="success",
+                )
+            ],
+            [
+                button(
+                    "لغو و بازگشت",
+                    callback_data=NavCallback(action="topup").pack(),
+                    style="danger",
+                )
+            ],
         ),
     )
 
 
 @router.message(WalletDepositState.amount, F.text)
-async def deposit_amount(message: Message, state: FSMContext) -> None:
+async def deposit_amount(message: Message, session: AsyncSession, state: FSMContext) -> None:
     raw = message.text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")).replace(",", "").strip()
     if not raw.isdigit() or int(raw) <= 0:
         await message.answer("مبلغ معتبر و بزرگ‌تر از صفر ارسال کنید؛ نمونه: <code>250000</code>")
         return
+    amount = int(raw)
+    await state.update_data(amount=amount)
+    settings = SettingsService(session)
+    rows = []
+    if await settings.get_bool("wallet_card_enabled") and await settings.get("wallet_card_number"):
+        rows.append(
+            [
+                button(
+                    "💳 کارت‌به‌کارت",
+                    callback_data=DepositCallback(action="start", method="card").pack(),
+                    style="success",
+                )
+            ]
+        )
+    if await settings.get_bool("wallet_crypto_enabled") and await settings.get(
+        "wallet_crypto_address"
+    ):
+        rows.append(
+            [
+                button(
+                    "₮ تتر USDT (BEP20)",
+                    callback_data=DepositCallback(action="start", method="crypto").pack(),
+                    style="success",
+                )
+            ]
+        )
+    rows.append([button("لغو", callback_data=NavCallback(action="wallet").pack(), style="danger")])
+    await message.answer(
+        f"<b>مبلغ شارژ: {money(amount)}</b>\n\nروش پرداخت را انتخاب کنید:",
+        reply_markup=keyboard(*rows),
+    )
+
+
+@router.callback_query(DepositCallback.filter(F.action == "paid"))
+async def deposit_paid(
+    callback: CallbackQuery,
+    callback_data: DepositCallback,
+    state: FSMContext,
+) -> None:
     data = await state.get_data()
-    await state.update_data(amount=int(raw))
-    if data["deposit_method"] == DepositMethod.CRYPTO.value:
+    if int(data.get("amount", 0)) <= 0 or data.get("deposit_method") != callback_data.method:
+        await callback.answer("اطلاعات پرداخت منقضی شده است؛ دوباره شروع کنید.", show_alert=True)
+        return
+    if callback_data.method == DepositMethod.CRYPTO.value:
         await state.set_state(WalletDepositState.transaction_hash)
-        await message.answer("هش یا شناسه تراکنش ارز دیجیتال را ارسال کنید.")
+        await edit_or_send(
+            callback,
+            "<b>🔗 هش تراکنش</b>\n\nهش یا شناسه تراکنش USDT روی شبکه BEP20 را ارسال کنید.",
+            reply_markup=keyboard(
+                [button("لغو", callback_data=NavCallback(action="wallet").pack(), style="danger")]
+            ),
+        )
     else:
         await state.set_state(WalletDepositState.proof)
-        await message.answer("اکنون تصویر فیش واریز را به صورت عکس یا فایل ارسال کنید.")
+        await edit_or_send(
+            callback,
+            "<b>🧾 ارسال رسید</b>\n\n"
+            "اکنون تصویر واضح فیش کارت‌به‌کارت را به صورت عکس یا فایل ارسال کنید.",
+            reply_markup=keyboard(
+                [button("لغو", callback_data=NavCallback(action="wallet").pack(), style="danger")]
+            ),
+        )
 
 
 @router.message(WalletDepositState.transaction_hash, F.text)

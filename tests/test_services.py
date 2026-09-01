@@ -18,9 +18,20 @@ from bot.database.enums import (
     TransactionType,
     UserRole,
 )
-from bot.database.models import Category, Order, Payment, Product, Transaction, User, Wallet
+from bot.database.models import (
+    Category,
+    Order,
+    Payment,
+    Product,
+    Setting,
+    Transaction,
+    User,
+    Wallet,
+)
+from bot.database.product_content import PRODUCT_CONTENT
 from bot.modules.payments.providers.base import GatewayVerification
 from bot.services.admin import AdminAccessService
+from bot.services.catalog import CatalogService
 from bot.services.coupons import CouponService
 from bot.services.deposits import DepositService
 from bot.services.orders import OrderService
@@ -317,6 +328,81 @@ async def test_catalog_seed_is_complete_and_idempotent(database) -> None:
         assert category_count == len(DEFAULT_CATEGORIES)
         assert product_count == len(DEFAULT_PRODUCTS)
         assert products_with_photos == len(DEFAULT_PRODUCTS)
+
+
+@pytest.mark.asyncio
+async def test_catalog_copy_is_unique_specific_and_uses_short_subscription_names(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=())
+    await seed_database(database.session_factory, settings)
+
+    assert len(PRODUCT_CONTENT) == len(DEFAULT_PRODUCTS) == 65
+    assert len({item.description for item in DEFAULT_PRODUCTS}) == len(DEFAULT_PRODUCTS)
+    assert all(len(item.input_prompt) <= 240 for item in DEFAULT_PRODUCTS)
+    assert all("رمز عبور لازم نیست" not in item.input_prompt for item in DEFAULT_PRODUCTS)
+
+    subscriptions = [
+        item
+        for item in DEFAULT_PRODUCTS
+        if item.category in {"اشتراک هوش مصنوعی", "سایر محصولات دیجیتال"}
+    ]
+    assert all("یک‌ماهه" not in item.name for item in subscriptions)
+    assert all("اختصاصی" not in item.name for item in subscriptions)
+    assert {item.name for item in subscriptions} >= {
+        "ChatGPT Plus Shared",
+        "ChatGPT Plus Personal",
+        "Claude Pro",
+        "Telegram Premium 3 Months",
+        "Telegram Premium 6 Months",
+        "Telegram Premium 12 Months",
+    }
+
+
+@pytest.mark.asyncio
+async def test_wallet_destinations_seed_once_and_admin_edits_persist(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=())
+    await seed_database(database.session_factory, settings)
+    async with database.session_factory() as session:
+        values = {
+            item.key: item.value
+            for item in (
+                await session.scalars(select(Setting).where(Setting.key.startswith("wallet_")))
+            ).all()
+        }
+        assert values["wallet_card_enabled"] == "true"
+        assert values["wallet_card_number"] == "6219861487954959"
+        assert values["wallet_card_holder"] == "علیرضا"
+        assert values["wallet_crypto_enabled"] == "true"
+        assert values["wallet_crypto_network"] == "BEP20"
+        assert values["wallet_crypto_address"] == ("0xd7ab9C72A65D036D8438fD208578AE1FAd07dF7e")
+        card = await session.scalar(select(Setting).where(Setting.key == "wallet_card_number"))
+        assert card is not None
+        card.value = "ADMIN-EDITED"
+        await session.commit()
+
+    await seed_database(database.session_factory, settings)
+    async with database.session_factory() as session:
+        assert await SettingsService(session).get("wallet_card_number") == "ADMIN-EDITED"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_reorder_and_move_products_between_categories(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=())
+    await seed_database(database.session_factory, settings)
+    async with database.session_factory() as session:
+        service = CatalogService(session)
+        categories = await service.categories(active_only=False)
+        source = categories[0]
+        target = categories[-1]
+        products = await service.products(source.id, active_only=False)
+        first, second = products[:2]
+
+        await service.reorder_product(second.id, -1)
+        reordered = await service.products(source.id, active_only=False)
+        assert reordered[0].id == second.id
+
+        moved = await service.move_product(first.id, target.id)
+        assert moved.category_id == target.id
+        assert moved.category.id == target.id
 
 
 @pytest.mark.asyncio
