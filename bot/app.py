@@ -11,6 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from bot.config import AppSettings, get_settings
+from bot.core.emojis import PremiumEmojiFallbackMiddleware
 from bot.core.middlewares import (
     BusinessErrorMiddleware,
     DatabaseSessionMiddleware,
@@ -69,6 +70,7 @@ async def run() -> None:
                 link_preview_is_disabled=True,
             ),
         )
+        bot.session.middleware(PremiumEmojiFallbackMiddleware())
         dispatcher = build_dispatcher(database, settings)
         await _set_commands(bot)
         await bot.delete_webhook(drop_pending_updates=False)

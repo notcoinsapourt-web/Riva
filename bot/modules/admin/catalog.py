@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from aiogram import F
+from aiogram import Bot, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback
+from bot.core.emojis import (
+    extract_custom_emoji_id,
+    valid_custom_emoji_id,
+    validate_custom_emoji,
+)
 from bot.core.formatting import compact_text, h, money
 from bot.core.states import (
     AdminCatalogEditState,
@@ -244,7 +249,10 @@ async def product_edit_prompt(
         "description": "توضیحات جدید را ارسال کنید.",
         "input_prompt": "متن درخواست اطلاعات از مشتری را ارسال کنید.",
         "emoji": "ایموجی جدید را ارسال کنید.",
-        "custom_emoji_id": "Custom Emoji ID را ارسال کنید؛ برای حذف عدد 0 را بفرستید.",
+        "custom_emoji_id": (
+            "ایموجی Premium متحرک را مستقیماً ارسال کنید یا Custom Emoji ID را بفرستید؛ "
+            "برای حذف عدد 0 را ارسال کنید."
+        ),
         "photo": "عکس جدید را ارسال کنید؛ برای حذف عکس کلمه «حذف» را بفرستید.",
     }
     if field not in prompts:
@@ -555,7 +563,8 @@ async def category_edit_prompt(
         {"scope": "category", "entity_id": callback_data.entity_id, "field": field}
     )
     prompt = (
-        "Custom Emoji ID را ارسال کنید؛ برای حذف عدد 0 را بفرستید."
+        "ایموجی Premium متحرک را ارسال کنید یا Custom Emoji ID را بفرستید؛ "
+        "برای حذف عدد 0 را ارسال کنید."
         if field == "custom_emoji_id"
         else "مقدار جدید را ارسال کنید."
     )
@@ -573,6 +582,7 @@ async def category_delete(
 @router.message(AdminCatalogEditState.value, F.photo | F.text)
 async def catalog_edit_value(
     message: Message,
+    bot: Bot,
     session: AsyncSession,
     db_user: User,
     state: FSMContext,
@@ -598,8 +608,18 @@ async def catalog_edit_value(
         value = int(raw)
     else:
         value = (message.text or "").strip()
-        if field == "custom_emoji_id" and value == "0":
-            value = None
+        if field == "custom_emoji_id":
+            if value == "0":
+                value = None
+            else:
+                emoji_id = extract_custom_emoji_id(message) or valid_custom_emoji_id(value)
+                if emoji_id is None or not await validate_custom_emoji(bot, emoji_id):
+                    await message.answer(
+                        "این ایموجی Premium معتبر نیست. خود ایموجی متحرک را از تلگرام "
+                        "ارسال کنید یا یک ID عددی معتبر بفرستید."
+                    )
+                    return
+                value = emoji_id
     if scope == "product":
         item = await CatalogService(session).update_product(entity_id, **{field: value})
         section = "products"

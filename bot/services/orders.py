@@ -23,6 +23,7 @@ from bot.database.models import (
     User,
 )
 from bot.services.coupons import CouponService
+from bot.services.product_presentation import display_name, subtotal_for
 from bot.services.settings import SettingsService
 from bot.services.wallet import WalletService
 
@@ -51,6 +52,7 @@ class OrderService:
         customer_input: str,
         checkout_key: str,
         coupon_code: str | None = None,
+        quantity: int = 1,
     ) -> Order:
         lock_key = (id(asyncio.get_running_loop()), user.id)
         async with self._checkout_locks[lock_key]:
@@ -60,6 +62,7 @@ class OrderService:
                 customer_input=customer_input,
                 checkout_key=checkout_key,
                 coupon_code=coupon_code,
+                quantity=quantity,
             )
 
     async def _checkout_locked(
@@ -70,6 +73,7 @@ class OrderService:
         customer_input: str,
         checkout_key: str,
         coupon_code: str | None,
+        quantity: int,
     ) -> Order:
         existing = await self.session.scalar(
             select(Order).where(Order.checkout_key == checkout_key)
@@ -85,7 +89,7 @@ class OrderService:
         if not details:
             raise ValidationError("اطلاعات سفارش نمی‌تواند خالی باشد.")
 
-        subtotal = product.price
+        subtotal = subtotal_for(product, quantity)
         coupon = None
         discount = 0
         try:
@@ -100,9 +104,9 @@ class OrderService:
                 user_id=user.id,
                 product_id=product.id,
                 coupon_id=coupon.id if coupon else None,
-                product_name=product.name,
+                product_name=display_name(product),
                 unit_price=product.price,
-                quantity=1,
+                quantity=quantity,
                 subtotal=subtotal,
                 discount_amount=discount,
                 total_amount=total,

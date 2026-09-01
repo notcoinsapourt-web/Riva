@@ -5,6 +5,7 @@ from dataclasses import dataclass
 PRODUCT_IMAGE_BASE_URL = (
     "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products"
 )
+PRODUCT_IMAGE_VERSION = "20260901-premium-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,7 @@ class SeedProduct:
 
     @property
     def photo_url(self) -> str:
-        return f"{PRODUCT_IMAGE_BASE_URL}/{self.image_slug}.jpg"
+        return f"{PRODUCT_IMAGE_BASE_URL}/{self.image_slug}.jpg?v={PRODUCT_IMAGE_VERSION}"
 
 
 DEFAULT_CATEGORIES: tuple[SeedCategory, ...] = (

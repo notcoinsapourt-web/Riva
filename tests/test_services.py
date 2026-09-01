@@ -154,6 +154,48 @@ async def test_checkout_double_click_deducts_once_and_cancel_refunds_once(databa
 
 
 @pytest.mark.asyncio
+async def test_checkout_uses_requested_service_quantity_and_calculated_price(database) -> None:
+    async with database.session_factory() as session:
+        user = await _customer(session, telegram_id=1020)
+        category = Category(name="Instagram", emoji="📸")
+        session.add(category)
+        await session.flush()
+        product = Product(
+            category_id=category.id,
+            name="۱۰۰۰ فالوور اقتصادی اینستاگرام",
+            description="فالوور اقتصادی",
+            price=149_000,
+            input_prompt="لینک عمومی پیج را ارسال کنید.",
+            photo_file_id=(
+                "https://example.test/assets/products/instagram-followers-1k-economy.jpg?v=2"
+            ),
+        )
+        session.add(product)
+        await session.commit()
+        await WalletService(session).adjust(
+            user_id=user.id,
+            amount=500_000,
+            transaction_type=TransactionType.ADMIN_CREDIT,
+            description="quantity checkout credit",
+            idempotency_key="quantity-credit",
+        )
+
+        order = await OrderService(session).checkout(
+            user=user,
+            product_id=product.id,
+            customer_input="https://instagram.com/example",
+            checkout_key="quantity-checkout",
+            quantity=2_500,
+        )
+
+        assert order.product_name == "فالوور اقتصادی"
+        assert order.quantity == 2_500
+        assert order.subtotal == 372_500
+        assert order.total_amount == 372_500
+        assert (await WalletService(session).get(user.id)).balance == 127_500
+
+
+@pytest.mark.asyncio
 async def test_coupon_capacity_cannot_be_exceeded(database) -> None:
     async with database.session_factory() as session:
         first = await _customer(session, telegram_id=2011)

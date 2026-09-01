@@ -1,4 +1,7 @@
+from aiogram.types import InlineKeyboardMarkup
+
 from bot.core.callbacks import AdminCallback, CatalogCallback, ModuleCallback
+from bot.core.emojis import PREMIUM_EMOJIS, keyboard_without_premium
 from bot.core.i18n import I18n
 from bot.core.ui import button, persistent_home_keyboard
 
@@ -26,6 +29,17 @@ def test_premium_button_fields_are_supported() -> None:
 def test_invalid_custom_emoji_is_ignored() -> None:
     item = button("فروشگاه", callback_data="n:catalog", custom_emoji_id="none")
     assert item.icon_custom_emoji_id is None
+
+
+def test_premium_icon_is_separate_and_has_unicode_fallback(monkeypatch) -> None:
+    monkeypatch.setitem(PREMIUM_EMOJIS, "home", "5368324170671202286")
+    item = button("🏠 منوی اصلی", callback_data="n:home")
+    assert item.text == "منوی اصلی"
+    assert item.icon_custom_emoji_id == "5368324170671202286"
+
+    fallback = keyboard_without_premium(InlineKeyboardMarkup(inline_keyboard=[[item]]))
+    assert fallback.inline_keyboard[0][0].text == "🏠 منوی اصلی"
+    assert fallback.inline_keyboard[0][0].icon_custom_emoji_id is None
 
 
 def test_persistent_home_keyboard_is_full_width_and_persistent() -> None:

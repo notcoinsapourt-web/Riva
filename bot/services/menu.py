@@ -27,12 +27,10 @@ class MenuService:
             action = MODULE_ACTIONS.get(module.name)
             if action is None:
                 continue
-            label = (
-                module.menu_text or module.display_name
-                if module.custom_emoji_id
-                else " ".join(part for part in (module.emoji, module.menu_text) if part)
+            label = " ".join(
+                part for part in (module.emoji, module.menu_text or module.display_name) if part
             )
-            if module.name == "catalog" and not module.custom_emoji_id:
+            if module.name == "catalog":
                 label = f"💎 خدمات مجازی | {module.menu_text or module.display_name}"
             items[module.name] = button(
                 label,

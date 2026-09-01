@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from html import escape
 
+from bot.core.emojis import valid_custom_emoji_id
 from bot.database.enums import OrderStatus, TicketStatus
 
 ORDER_STATUS_FA = {
@@ -35,7 +36,8 @@ def h(value: object) -> str:
 
 
 def custom_emoji(emoji_id: str | None, fallback: str) -> str:
-    if not emoji_id:
+    emoji_id = valid_custom_emoji_id(emoji_id)
+    if emoji_id is None:
         return fallback
     return f'<tg-emoji emoji-id="{h(emoji_id)}">{fallback}</tg-emoji>'
 

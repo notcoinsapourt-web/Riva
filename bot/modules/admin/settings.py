@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from aiogram import F
+from aiogram import Bot, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback, ModuleCallback
+from bot.core.emojis import (
+    extract_custom_emoji_id,
+    valid_custom_emoji_id,
+    validate_custom_emoji,
+)
 from bot.core.formatting import h
 from bot.core.states import AdminModuleEditState, AdminSettingsEditState
 from bot.core.ui import button, edit_or_send, keyboard
@@ -233,7 +238,10 @@ async def module_edit_start(
     prompt = {
         "text": "متن جدید دکمه را ارسال کنید.",
         "emoji": "ایموجی جدید را ارسال کنید؛ برای حذف عدد 0 را بفرستید.",
-        "custom": "Custom Emoji ID را ارسال کنید؛ برای حذف عدد 0 را بفرستید.",
+        "custom": (
+            "ایموجی Premium متحرک را مستقیماً ارسال کنید یا Custom Emoji ID را بفرستید؛ "
+            "برای حذف عدد 0 را ارسال کنید."
+        ),
     }[field]
     await edit_or_send(callback, prompt)
 
@@ -241,6 +249,7 @@ async def module_edit_start(
 @router.message(AdminModuleEditState.value, F.text)
 async def module_edit_value(
     message: Message,
+    bot: Bot,
     session: AsyncSession,
     db_user: User,
     state: FSMContext,
@@ -255,7 +264,17 @@ async def module_edit_value(
     elif field == "emoji":
         kwargs = {"emoji": "" if value == "0" else value}
     else:
-        kwargs = {"custom_emoji_id": "" if value == "0" else value}
+        if value == "0":
+            kwargs = {"custom_emoji_id": ""}
+        else:
+            emoji_id = extract_custom_emoji_id(message) or valid_custom_emoji_id(value)
+            if emoji_id is None or not await validate_custom_emoji(bot, emoji_id):
+                await message.answer(
+                    "این ایموجی Premium معتبر نیست. خود ایموجی متحرک را ارسال کنید "
+                    "یا یک ID عددی معتبر بفرستید."
+                )
+                return
+            kwargs = {"custom_emoji_id": emoji_id}
     await SettingsService(session).update_module_ui(name, **kwargs)
     await ActivityLogService(session).record(
         "module.ui_updated",

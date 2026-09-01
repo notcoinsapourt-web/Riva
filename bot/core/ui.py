@@ -5,10 +5,11 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
 )
+
+from bot.core.emojis import remember_button_fallback, reply_button, resolve_button_emoji
 
 
 def button(
@@ -17,12 +18,24 @@ def button(
     callback_data: str,
     custom_emoji_id: str | None = None,
     style: str | None = None,
+    emoji_key: str | None = None,
 ) -> InlineKeyboardButton:
     """Create a modern Telegram button with optional Bot API premium styling."""
 
-    payload: dict[str, object] = {"text": text, "callback_data": callback_data}
-    if custom_emoji_id and custom_emoji_id.isdecimal():
-        payload["icon_custom_emoji_id"] = custom_emoji_id
+    resolved = resolve_button_emoji(
+        text,
+        custom_emoji_id=custom_emoji_id,
+        emoji_key=emoji_key,
+    )
+    payload: dict[str, object] = {"text": resolved.text, "callback_data": callback_data}
+    if resolved.custom_emoji_id:
+        payload["icon_custom_emoji_id"] = resolved.custom_emoji_id
+        remember_button_fallback(
+            callback_data=callback_data,
+            text=resolved.text,
+            custom_emoji_id=resolved.custom_emoji_id,
+            fallback_text=resolved.fallback_text,
+        )
     if style:
         payload["style"] = style
     return InlineKeyboardButton(**payload)  # type: ignore[arg-type]
@@ -36,7 +49,7 @@ def persistent_home_keyboard() -> ReplyKeyboardMarkup:
     """Keep a large, single-tap home button below the Telegram composer."""
 
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🏠 منو")]],
+        keyboard=[[reply_button("🏠 منو", emoji_key="home")]],
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="یک گزینه را انتخاب کنید",

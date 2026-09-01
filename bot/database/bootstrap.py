@@ -33,6 +33,7 @@ DEFAULT_MODULES: tuple[tuple[str, str, bool, bool, int, str | None, str | None],
     ("payments", "پرداخت آنلاین", False, False, 70, None, "💳"),
 )
 
+
 async def create_schema(database: Database) -> None:
     # Initial free edition uses create_all. Alembic is included for controlled upgrades.
     async with database.engine.begin() as connection:
@@ -104,15 +105,22 @@ async def _seed_categories(session: AsyncSession) -> None:
 
 async def _seed_products(session: AsyncSession) -> None:
     categories = {
-        category.name: category
-        for category in (await session.scalars(select(Category))).all()
+        category.name: category for category in (await session.scalars(select(Category))).all()
     }
-    existing = set(
-        (await session.execute(select(Product.category_id, Product.name))).all()
-    )
+    existing = {
+        (item.category_id, item.name): item
+        for item in (await session.scalars(select(Product))).all()
+    }
     for product in DEFAULT_PRODUCTS:
         category = categories.get(product.category)
-        if category is None or (category.id, product.name) in existing:
+        if category is None:
+            continue
+        current = existing.get((category.id, product.name))
+        if current is not None:
+            if current.photo_file_id and current.photo_file_id.startswith(
+                "https://raw.githubusercontent.com/notcoinsapourt-web/Riva/main/assets/products/"
+            ):
+                current.photo_file_id = product.photo_url
             continue
         session.add(
             Product(

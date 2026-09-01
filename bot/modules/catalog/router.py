@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import CatalogCallback, NavCallback
+from bot.core.exceptions import ValidationError
 from bot.core.formatting import compact_text, h, money
 from bot.core.states import CheckoutState
 from bot.core.ui import button, edit_or_send, keyboard
@@ -16,6 +17,13 @@ from bot.services.catalog import CatalogService
 from bot.services.coupons import CouponService
 from bot.services.notifications import NotificationService
 from bot.services.orders import OrderService
+from bot.services.product_presentation import (
+    display_name,
+    order_requirements,
+    parse_quantity,
+    quantity_policy,
+    subtotal_for,
+)
 from bot.services.settings import SettingsService
 from bot.services.users import UserService
 
@@ -43,7 +51,7 @@ async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FS
 
     def category_button(category, *, featured: bool = False):
         return button(
-            category.name if category.custom_emoji_id else f"{category.emoji} {category.name}",
+            f"{category.emoji} {category.name}",
             callback_data=CatalogCallback(action="category", entity_id=category.id).pack(),
             custom_emoji_id=category.custom_emoji_id,
             style="danger" if featured else "primary",
@@ -90,11 +98,7 @@ async def show_category(
     rows = [
         [
             button(
-                (
-                    compact_text(product.name, 26)
-                    if product.custom_emoji_id
-                    else f"{product.emoji} {compact_text(product.name, 26)}"
-                ),
+                f"{product.emoji} {compact_text(display_name(product), 32)}",
                 callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
                 custom_emoji_id=product.custom_emoji_id,
                 style="primary",
@@ -160,20 +164,30 @@ async def show_product(
     session: AsyncSession,
 ) -> None:
     product = await CatalogService(session).product(callback_data.entity_id)
+    policy = quantity_policy(product)
+    product_name = display_name(product)
+    pricing = (
+        f"💳 نرخ پایه: <b>{money(product.price)}</b> برای "
+        f"<b>{policy.base_quantity:,}</b> عدد\n"
+        f"🔢 حداقل سفارش: <b>{policy.minimum:,}</b>\n"
+        f"📦 حداکثر سفارش: <b>{policy.maximum:,}</b>\n"
+        f"➕ گام تعداد: مضرب <b>{policy.step:,}</b>"
+        if policy
+        else f"💳 قیمت محصول: <b>{money(product.price)}</b>\n📦 نوع سفارش: <b>ثابت</b>"
+    )
     text = (
-        f"<b>{h(product.emoji)} {h(product.name)}</b>\n\n"
+        f"<b>{h(product.emoji)} {h(product_name)}</b>\n\n"
         f"{h(product.description)}\n\n"
-        "⚡ شروع سفارش: <b>پس از ثبت و بررسی</b>\n"
+        "⚡ شروع: <b>پس از ثبت و بررسی سفارش</b>\n"
         f"🎯 دسته‌بندی: <b>{h(product.category.name)}</b>\n"
-        "🔐 امنیت: <b>بدون نیاز به رمز عبور</b>\n"
-        "✅ پیگیری وضعیت از داخل همین ربات\n\n"
-        f"💳 قیمت این بسته: <b>{money(product.price)}</b>\n\n"
-        f"🔹 اطلاعات موردنیاز: {h(product.input_prompt)}"
+        "✅ قیمت نهایی قبل از پرداخت نمایش داده می‌شود\n"
+        "🔐 رمز عبور یا کد ورود داخل ربات دریافت نمی‌شود\n\n"
+        f"{pricing}"
     )
     markup = keyboard(
         [
             button(
-                "خرید این محصول",
+                "🔢 ثبت تعداد و ادامه" if policy else "🛒 ادامه خرید",
                 callback_data=CatalogCallback(action="buy", entity_id=product.id).pack(),
                 style="success",
             )
@@ -214,19 +228,87 @@ async def begin_checkout(
 ) -> None:
     await SettingsService(session).require_module("catalog")
     product = await CatalogService(session).product(callback_data.entity_id)
-    await state.set_state(CheckoutState.waiting_for_details)
+    policy = quantity_policy(product)
     await state.set_data(
         {
             "product_id": product.id,
             "checkout_key": secrets.token_urlsafe(18),
             "coupon_code": None,
+            "quantity": 1,
         }
     )
+    if policy:
+        await state.set_state(CheckoutState.waiting_for_quantity)
+        await edit_or_send(
+            callback,
+            f"<b>🔢 تعداد {h(display_name(product))}</b>\n\n"
+            f"تعداد دلخواه را بین <b>{policy.minimum:,}</b> تا "
+            f"<b>{policy.maximum:,}</b> وارد کنید.\n"
+            f"عدد باید مضربی از <b>{policy.step:,}</b> باشد.\n\n"
+            f"💳 نرخ پایه: {money(product.price)} برای {policy.base_quantity:,} عدد\n\n"
+            "نمونه: <code>2500</code>",
+            reply_markup=keyboard(
+                [
+                    button(
+                        "لغو و بازگشت",
+                        callback_data=CatalogCallback(
+                            action="product", entity_id=product.id
+                        ).pack(),
+                        style="danger",
+                    )
+                ]
+            ),
+        )
+        return
+    await _ask_order_details(callback, product, state, quantity=1)
+
+
+@router.message(CheckoutState.waiting_for_quantity, F.text)
+async def receive_quantity(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+) -> None:
+    data = await state.get_data()
+    product = await CatalogService(session).product(int(data["product_id"]))
+    policy = quantity_policy(product)
+    if policy is None:
+        await state.clear()
+        await message.answer("این محصول تعداد متغیر ندارد؛ دوباره آن را انتخاب کنید.")
+        return
+    try:
+        quantity = policy.validate(parse_quantity(message.text))
+    except ValidationError as exc:
+        await message.answer(f"⚠️ {h(str(exc))}\n\nلطفاً تعداد درست را دوباره ارسال کنید.")
+        return
+    await state.update_data(quantity=quantity)
+    await _ask_order_details(message, product, state, quantity=quantity)
+
+
+async def _ask_order_details(
+    event: Message | CallbackQuery,
+    product,
+    state: FSMContext,
+    *,
+    quantity: int,
+) -> None:
+    prompt, safety = order_requirements(product)
+    await state.set_state(CheckoutState.waiting_for_details)
     await edit_or_send(
-        callback,
-        f"<b>📝 اطلاعات سفارش</b>\n\n{h(product.input_prompt)}",
+        event,
+        f"<b>📝 اطلاعات لازم برای {h(display_name(product))}</b>\n\n"
+        f"🔢 تعداد انتخابی: <b>{quantity:,}</b>\n"
+        f"💳 مبلغ محاسبه‌شده: <b>{money(subtotal_for(product, quantity))}</b>\n\n"
+        f"<b>چه چیزی ارسال کنم؟</b>\n{h(prompt)}\n\n"
+        f"🔐 {h(safety)}",
         reply_markup=keyboard(
-            [button("لغو", callback_data=NavCallback(action="catalog").pack(), style="danger")]
+            [
+                button(
+                    "لغو و بازگشت",
+                    callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
+                    style="danger",
+                )
+            ]
         ),
     )
 
@@ -271,7 +353,8 @@ async def receive_coupon(
 ) -> None:
     data = await state.get_data()
     product = await CatalogService(session).product(data["product_id"])
-    await CouponService(session).validate(message.text, user_id=db_user.id, subtotal=product.price)
+    subtotal = subtotal_for(product, int(data.get("quantity", 1)))
+    await CouponService(session).validate(message.text, user_id=db_user.id, subtotal=subtotal)
     await state.update_data(coupon_code=message.text.strip().upper())
     await state.set_state(CheckoutState.confirming)
     await _show_confirmation(message, session, db_user, state, product.id)
@@ -310,6 +393,7 @@ async def confirm_checkout(
         customer_input=str(data["customer_input"]),
         checkout_key=str(data["checkout_key"]),
         coupon_code=data.get("coupon_code"),
+        quantity=int(data.get("quantity", 1)),
     )
     await state.clear()
     await edit_or_send(
@@ -334,6 +418,7 @@ async def confirm_checkout(
         "<b>📦 سفارش جدید</b>\n\n"
         f"شماره: <code>{order.number}</code>\n"
         f"محصول: {h(order.product_name)}\n"
+        f"تعداد: {order.quantity:,}\n"
         f"مبلغ: {money(order.total_amount)}\n"
         f"کاربر: <code>{db_user.telegram_id}</code>"
     )
@@ -349,16 +434,19 @@ async def _show_confirmation(
     data = await state.get_data()
     product = await CatalogService(session).product(product_id)
     hydrated = await UserService(session).get_by_id(user.id)
+    quantity = int(data.get("quantity", 1))
+    subtotal = subtotal_for(product, quantity)
     discount = 0
     if data.get("coupon_code"):
         _, discount = await CouponService(session).validate(
-            str(data["coupon_code"]), user_id=user.id, subtotal=product.price
+            str(data["coupon_code"]), user_id=user.id, subtotal=subtotal
         )
-    total = product.price - discount
+    total = subtotal - discount
     text = (
         "<b>🧾 تأیید نهایی سفارش</b>\n\n"
-        f"محصول: <b>{h(product.name)}</b>\n"
-        f"قیمت: {money(product.price)}\n"
+        f"محصول: <b>{h(display_name(product))}</b>\n"
+        f"تعداد: <b>{quantity:,}</b>\n"
+        f"قیمت قبل از تخفیف: {money(subtotal)}\n"
         f"تخفیف: {money(discount)}\n"
         f"مبلغ نهایی: <b>{money(total)}</b>\n"
         f"موجودی کیف پول: {money(hydrated.wallet.balance)}\n\n"

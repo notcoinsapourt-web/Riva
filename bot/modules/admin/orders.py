@@ -98,6 +98,7 @@ async def order_detail(
         f"<b>📦 سفارش {order.number}</b>\n\n"
         f"وضعیت: {ORDER_STATUS_FA[order.status]}\n"
         f"محصول: <b>{h(order.product_name)}</b>\n"
+        f"تعداد: <b>{order.quantity:,}</b>\n"
         f"مبلغ: <b>{money(order.total_amount)}</b>\n"
         f"کاربر: {h(order.user.first_name)} • <code>{order.user.telegram_id}</code>\n"
         f"زمان ثبت: {dt(order.created_at)}\n\n"
