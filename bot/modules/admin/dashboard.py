@@ -15,6 +15,8 @@ from bot.database.enums import UserRole
 from bot.database.models import Admin, User
 from bot.modules.admin.common import protected_router
 from bot.services.admin import AdminDashboardService
+from bot.services.logs import ActivityLogService
+from bot.services.maintenance import MaintenanceModeService
 
 router = protected_router("dashboard")
 
@@ -41,10 +43,13 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
         .join(User, User.id == Admin.user_id)
         .where(User.telegram_id == event.from_user.id, Admin.is_active.is_(True))
     )
+    maintenance_enabled = await MaintenanceModeService(session).is_enabled()
     if role in {UserRole.OWNER, UserRole.ADMIN}:
+        user_access = "🔴 خاموش" if maintenance_enabled else "🟢 فعال"
         text = (
             "<b>👑 مدیریت Persian Shop</b>\n"
             "<i>مرکز کنترل فروشگاه دیجیتال</i>\n\n"
+            f"🤖 دسترسی کاربران: <b>{user_access}</b>\n\n"
             f"📦 سفارش جدید: <b>{data['pending_orders']}</b>\n"
             f"🎧 تیکت باز: <b>{data['open_tickets']}</b>\n"
             f"💎 محصول فعال: <b>{data['active_products']}</b>\n"
@@ -54,7 +59,8 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
         )
     elif role == UserRole.OPERATOR:
         text = (
-            f"<b>⚙️ پنل اپراتور</b>\n\n📦 سفارش‌های در انتظار بررسی: <b>{data['pending_orders']}</b>"
+            f"<b>⚙️ پنل اپراتور</b>\n\n📦 سفارش‌های در انتظار بررسی: "
+            f"<b>{data['pending_orders']}</b>"
         )
     else:
         text = f"<b>🎧 پنل پشتیبانی</b>\n\nتیکت‌های نیازمند رسیدگی: <b>{data['open_tickets']}</b>"
@@ -62,6 +68,17 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
     if role in {UserRole.OWNER, UserRole.ADMIN}:
         rows.extend(
             [
+                [
+                    button(
+                        "🟢 روشن کردن ربات برای کاربران"
+                        if maintenance_enabled
+                        else "🔴 خاموش کردن ربات برای کاربران",
+                        callback_data=AdminCallback(
+                            section="dashboard", action="maintenance_toggle"
+                        ).pack(),
+                        style="success" if maintenance_enabled else "danger",
+                    )
+                ],
                 [
                     button(
                         "📦 سفارش‌ها",
@@ -148,6 +165,34 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
     rows.append([button("🏠 خروج از مدیریت", callback_data=NavCallback(action="home").pack())])
     markup = keyboard(*rows)
     await edit_or_send(event, text, reply_markup=markup)
+
+
+@router.callback_query(
+    AdminCallback.filter(
+        (F.section == "dashboard") & (F.action == "maintenance_toggle")
+    ),
+    HasAdminRole(UserRole.OWNER, UserRole.ADMIN),
+)
+async def maintenance_toggle(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: User,
+) -> None:
+    enabled = await MaintenanceModeService(session).toggle()
+    await ActivityLogService(session).record(
+        "maintenance.enabled" if enabled else "maintenance.disabled",
+        actor_user_id=db_user.id,
+        entity_type="setting",
+        entity_id="maintenance_mode",
+        details={"users_blocked": enabled},
+    )
+    await callback.answer(
+        "ربات برای کاربران خاموش شد."
+        if enabled
+        else "ربات برای کاربران دوباره فعال شد.",
+        show_alert=True,
+    )
+    await show_dashboard(callback, session=session)
 
 
 @router.callback_query(
