@@ -12,6 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from bot.config import AppSettings, get_settings
+from bot.core.customer_localization import EnglishButtonCleanupMiddleware
 from bot.core.emojis import PremiumEmojiFallbackMiddleware
 from bot.core.language import LocalizationMiddleware
 from bot.core.middlewares import (
@@ -75,6 +76,7 @@ async def run() -> None:
             ),
         )
         bot.session.middleware(LocalizationMiddleware())
+        bot.session.middleware(EnglishButtonCleanupMiddleware())
         bot.session.middleware(PremiumEmojiFallbackMiddleware())
         if settings.order_report_target is not None:
             report_task = asyncio.create_task(
