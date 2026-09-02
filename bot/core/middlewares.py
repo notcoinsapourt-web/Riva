@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bot.config import AppSettings
 from bot.core.exceptions import PersianShopError
 from bot.core.language import language_tokens, reset_language
+from bot.services.maintenance import MaintenanceModeService, maintenance_notice
 from bot.services.users import UserService
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,30 @@ class UserContextMiddleware(BaseMiddleware):
             return await handler(event, data)
         finally:
             reset_language(tokens)
+
+
+class MaintenanceModeMiddleware(BaseMiddleware):
+    """Stop customer interactions globally while keeping all active admins online."""
+
+    async def __call__(self, handler: Handler, event: TelegramObject, data: dict[str, Any]) -> Any:
+        session: AsyncSession | None = data.get("session")
+        db_user = data.get("db_user")
+        if session is None or db_user is None:
+            return await handler(event, data)
+
+        service = MaintenanceModeService(session)
+        if not await service.is_enabled():
+            return await handler(event, data)
+        if await service.can_bypass(db_user.id):
+            return await handler(event, data)
+
+        inner_event = _inner_event(event)
+        notice = maintenance_notice(db_user.language_code)
+        if isinstance(inner_event, CallbackQuery):
+            await inner_event.answer(notice, show_alert=True)
+        elif isinstance(inner_event, Message):
+            await inner_event.answer(notice)
+        return None
 
 
 class RateLimitMiddleware(BaseMiddleware):
