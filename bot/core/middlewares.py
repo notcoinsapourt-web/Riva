@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.config import AppSettings
 from bot.core.exceptions import PersianShopError
+from bot.core.language import language_tokens, reset_language
 from bot.services.users import UserService
 
 logger = logging.getLogger(__name__)
@@ -41,14 +42,20 @@ class UserContextMiddleware(BaseMiddleware):
             return await handler(event, data)
         user = await UserService(session).ensure_user(telegram_user)
         data["db_user"] = user
-        if user.is_blocked:
-            inner_event = _inner_event(event)
-            if isinstance(inner_event, CallbackQuery):
-                await inner_event.answer("دسترسی شما به فروشگاه محدود شده است.", show_alert=True)
-            elif isinstance(inner_event, Message):
-                await inner_event.answer("دسترسی شما به فروشگاه محدود شده است.")
-            return None
-        return await handler(event, data)
+        tokens = language_tokens(user.language_code, user.telegram_id)
+        try:
+            if user.is_blocked:
+                inner_event = _inner_event(event)
+                if isinstance(inner_event, CallbackQuery):
+                    await inner_event.answer(
+                        "دسترسی شما به فروشگاه محدود شده است.", show_alert=True
+                    )
+                elif isinstance(inner_event, Message):
+                    await inner_event.answer("دسترسی شما به فروشگاه محدود شده است.")
+                return None
+            return await handler(event, data)
+        finally:
+            reset_language(tokens)
 
 
 class RateLimitMiddleware(BaseMiddleware):
@@ -81,20 +88,30 @@ class BusinessErrorMiddleware(BaseMiddleware):
         try:
             return await handler(event, data)
         except PersianShopError as exc:
+            tokens = _response_language(data)
             inner_event = _inner_event(event)
-            if isinstance(inner_event, CallbackQuery):
-                await inner_event.answer(str(exc), show_alert=True)
-            elif isinstance(inner_event, Message):
-                await inner_event.answer(f"⚠️ {exc}")
+            try:
+                if isinstance(inner_event, CallbackQuery):
+                    await inner_event.answer(str(exc), show_alert=True)
+                elif isinstance(inner_event, Message):
+                    await inner_event.answer(f"⚠️ {exc}")
+            finally:
+                if tokens:
+                    reset_language(tokens)
             return None
         except Exception:
             update_id = event.update_id if isinstance(event, Update) else None
             logger.exception("Unhandled update error", extra={"update_id": update_id})
+            tokens = _response_language(data)
             inner_event = _inner_event(event)
-            if isinstance(inner_event, CallbackQuery):
-                await inner_event.answer("خطای موقت رخ داد؛ دوباره تلاش کنید.", show_alert=True)
-            elif isinstance(inner_event, Message):
-                await inner_event.answer("خطای موقت رخ داد؛ لطفاً دوباره تلاش کنید.")
+            try:
+                if isinstance(inner_event, CallbackQuery):
+                    await inner_event.answer("خطای موقت رخ داد؛ دوباره تلاش کنید.", show_alert=True)
+                elif isinstance(inner_event, Message):
+                    await inner_event.answer("خطای موقت رخ داد؛ لطفاً دوباره تلاش کنید.")
+            finally:
+                if tokens:
+                    reset_language(tokens)
             return None
 
 
@@ -104,3 +121,10 @@ def _inner_event(event: TelegramObject) -> Message | CallbackQuery | None:
     if isinstance(event, Update):
         return event.callback_query or event.message
     return None
+
+
+def _response_language(data: dict[str, Any]):
+    user = data.get("db_user")
+    if user is None:
+        return None
+    return language_tokens(user.language_code, user.telegram_id)

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback, TicketCallback
 from bot.core.formatting import TICKET_STATUS_FA, dt, h
+from bot.core.language import is_english
 from bot.core.states import TicketCreateState
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import TicketSender
@@ -52,7 +53,11 @@ async def tickets_home(
     )
     await edit_or_send(
         callback,
-        await settings.module_content("tickets", "<b>🎧 پشتیبانی</b>")
+        (
+            "<b>🎧 Support</b>"
+            if is_english(db_user.language_code)
+            else await settings.module_content("tickets", "<b>🎧 پشتیبانی</b>")
+        )
         + "\n\n"
         + ("تیکت موردنظر را انتخاب کنید." if tickets else "هنوز تیکتی ثبت نکرده‌اید."),
         reply_markup=keyboard(*rows),

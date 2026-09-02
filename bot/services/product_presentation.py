@@ -7,6 +7,7 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from bot.core.exceptions import ValidationError
+from bot.core.language import is_english
 
 
 class ProductLike(Protocol):
@@ -27,9 +28,17 @@ class QuantityPolicy:
 
     def validate(self, quantity: int) -> int:
         if quantity < self.minimum or quantity > self.maximum:
-            raise ValidationError(f"تعداد باید بین {self.minimum:,} تا {self.maximum:,} باشد.")
+            raise ValidationError(
+                f"Quantity must be between {self.minimum:,} and {self.maximum:,}."
+                if is_english()
+                else f"تعداد باید بین {self.minimum:,} تا {self.maximum:,} باشد."
+            )
         if quantity % self.step:
-            raise ValidationError(f"تعداد باید مضربی از {self.step:,} باشد.")
+            raise ValidationError(
+                f"Quantity must be a multiple of {self.step:,}."
+                if is_english()
+                else f"تعداد باید مضربی از {self.step:,} باشد."
+            )
         return quantity
 
 
@@ -90,7 +99,11 @@ def subtotal_for(product: ProductLike, quantity: int) -> int:
     policy = quantity_policy(product)
     if policy is None:
         if quantity != 1:
-            raise ValidationError("این محصول با تعداد ثابت ارائه می‌شود.")
+            raise ValidationError(
+                "This product has a fixed quantity."
+                if is_english()
+                else "این محصول با تعداد ثابت ارائه می‌شود."
+            )
         return product.price
     policy.validate(quantity)
     raw = (product.price * quantity + policy.base_quantity - 1) // policy.base_quantity
@@ -101,12 +114,18 @@ def parse_quantity(value: str) -> int:
     normalized = value.translate(PERSIAN_DIGITS)
     normalized = normalized.replace(",", "").replace("٬", "").replace(" ", "")
     if not normalized.isdecimal():
-        raise ValidationError("تعداد را فقط به‌صورت عدد وارد کنید؛ مثال: 2500")
+        raise ValidationError(
+            "Enter the quantity using digits only; example: 2500"
+            if is_english()
+            else "تعداد را فقط به‌صورت عدد وارد کنید؛ مثال: 2500"
+        )
     return int(normalized)
 
 
 def order_requirements(product: ProductLike) -> tuple[str, str]:
     slug = product_slug(product)
+    if is_english():
+        return _english_order_requirements(slug)
     configured_prompt = _clean_prompt(product.input_prompt)
     generic_prompts = {
         "اطلاعات لازم برای انجام سفارش را وارد کنید.",
@@ -165,6 +184,49 @@ def order_requirements(product: ProductLike) -> tuple[str, str]:
             "فقط ایمیل یا نام کاربری لازم را بفرستید؛ رمز عبور و کد ورود را داخل ربات "
             "ارسال نکنید. اگر فعال‌سازی نیاز به هماهنگی داشته باشد، پشتیبانی راهنمایی می‌کند."
         )
+    return prompt, safety
+
+
+def _english_order_requirements(slug: str) -> tuple[str, str]:
+    if "comments" in slug:
+        prompt = "Send the public content link and your requested comment text."
+    elif "poll-votes" in slug:
+        prompt = "Send the poll link and the number or text of the selected option."
+    elif "story-views" in slug:
+        prompt = "Send the active story link or public profile username."
+    elif slug.startswith("instagram-followers-"):
+        prompt = "Send the public Instagram profile username or link."
+    elif slug.startswith("instagram-"):
+        prompt = "Send the direct link to the public Instagram post or Reel."
+    elif slug.startswith("telegram-members-"):
+        prompt = "Send the public channel link or a valid Telegram group invite link."
+    elif slug.startswith("telegram-"):
+        prompt = "Send the direct link to the public Telegram post."
+    elif slug.startswith("tiktok-followers-"):
+        prompt = "Send the public TikTok profile username or link."
+    elif slug.startswith("tiktok-"):
+        prompt = "Send the direct link to the public TikTok video."
+    elif slug.startswith("youtube-subscribers-"):
+        prompt = "Send the direct link to the public YouTube channel."
+    elif slug.startswith("youtube-"):
+        prompt = "Send the direct link to the public YouTube video or Short."
+    elif slug == "social-discord-members-1k":
+        prompt = "Send a valid Discord server invite link."
+    elif slug.startswith("social-") and ("followers" in slug or "members" in slug):
+        prompt = "Send the public profile username or link."
+    elif slug.startswith("social-"):
+        prompt = "Send the direct link to the public content."
+    elif slug.startswith("digital-telegram-premium-"):
+        prompt = "Send the Telegram username that should receive the Gift."
+    else:
+        prompt = "Send the email, username, plan, or other information requested for this item."
+
+    if slug.startswith(("instagram-", "telegram-", "tiktok-", "youtube-", "social-")):
+        safety = "Public links only. Never send a password, login code, or personal information."
+    elif slug.startswith("digital-telegram-premium-"):
+        safety = "Gift activation needs only the username. Never send a password or login code."
+    else:
+        safety = "Never send a password or login code. Support will guide you if needed."
     return prompt, safety
 
 

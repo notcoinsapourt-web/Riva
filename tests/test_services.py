@@ -39,6 +39,7 @@ from bot.services.notifications import NotificationService
 from bot.services.orders import OrderService
 from bot.services.payments import PaymentService
 from bot.services.settings import SettingsService
+from bot.services.users import UserService
 from bot.services.wallet import WalletService
 
 
@@ -335,6 +336,17 @@ async def test_profile_and_rules_are_editable_modules(database) -> None:
         rules = await service.toggle_module("rules")
         assert profile.is_enabled is False
         assert rules.is_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_explicit_user_language_is_persisted(database) -> None:
+    async with database.session_factory() as session:
+        user = await _customer(session, telegram_id=7010)
+        service = UserService(session)
+        updated = await service.set_language(user.id, "en")
+        assert updated.language_code == "en"
+        loaded = await service.get_by_id(user.id)
+        assert loaded.language_code == "en"
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from bot.core.exceptions import ValidationError
+from bot.core.language import language_tokens, reset_language
 from bot.services.product_presentation import (
     display_name,
     order_requirements,
@@ -54,3 +55,14 @@ def test_custom_order_prompt_has_priority_over_slug_fallback() -> None:
     prompt, _ = order_requirements(product)
 
     assert prompt == product.input_prompt
+
+
+def test_english_order_requirements_are_complete() -> None:
+    tokens = language_tokens("en", 1001)
+    try:
+        prompt, safety = order_requirements(instagram_product())
+    finally:
+        reset_language(tokens)
+
+    assert prompt == "Send the public Instagram profile username or link."
+    assert "Never send a password" in safety

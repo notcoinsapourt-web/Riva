@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback
 from bot.core.formatting import h
+from bot.core.language import translate_text
 from bot.core.states import AdminMessageState
 from bot.core.ui import button, keyboard
 from bot.database.models import User
 from bot.modules.admin.common import protected_router
 from bot.services.logs import ActivityLogService
 from bot.services.tickets import TicketService
+from bot.services.users import UserService
 
 router = protected_router("messages")
 
@@ -46,7 +48,8 @@ async def send_admin_message(
         entity_id = target
     delivered = True
     try:
-        await bot.send_message(target, outgoing)
+        recipient = await UserService(session).get_by_telegram_id(target)
+        await bot.send_message(target, translate_text(outgoing, recipient.language_code))
     except TelegramAPIError:
         delivered = False
     await ActivityLogService(session).record(

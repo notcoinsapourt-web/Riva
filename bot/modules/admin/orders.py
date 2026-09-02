@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback
 from bot.core.formatting import ORDER_STATUS_FA, dt, h, money
+from bot.core.language import translate_text
 from bot.core.states import AdminMessageState
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import OrderStatus
@@ -131,11 +132,14 @@ async def change_status(
         details={"status": status.value},
     )
     try:
-        await bot.send_message(
-            order.user.telegram_id,
+        notification = (
             f"<b>📦 وضعیت سفارش تغییر کرد</b>\n\n"
             f"سفارش: <code>{order.number}</code>\n"
-            f"وضعیت جدید: {ORDER_STATUS_FA[order.status]}",
+            f"وضعیت جدید: {ORDER_STATUS_FA[order.status]}"
+        )
+        await bot.send_message(
+            order.user.telegram_id,
+            translate_text(notification, order.user.language_code),
         )
     except TelegramAPIError:
         pass

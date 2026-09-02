@@ -6,7 +6,8 @@ from aiogram.types import Chat, InlineKeyboardMarkup, Message, MessageEntity
 from bot.core.callbacks import AdminCallback, CatalogCallback, ModuleCallback
 from bot.core.emojis import PREMIUM_EMOJIS, extract_custom_emoji_id, keyboard_without_premium
 from bot.core.i18n import I18n
-from bot.core.ui import button, persistent_home_keyboard
+from bot.core.language import category_name, product_name, translate_text
+from bot.core.ui import button, persistent_language_keyboard
 
 
 def test_callback_payloads_fit_telegram_limit() -> None:
@@ -64,9 +65,11 @@ def test_premium_icon_is_separate_and_has_unicode_fallback(monkeypatch) -> None:
     assert fallback.inline_keyboard[0][0].icon_custom_emoji_id is None
 
 
-def test_persistent_home_keyboard_is_full_width_and_persistent() -> None:
-    markup = persistent_home_keyboard()
-    assert [[item.text for item in row] for row in markup.keyboard] == [["🏠 منو"]]
+def test_persistent_language_keyboard_is_full_width_and_persistent() -> None:
+    markup = persistent_language_keyboard("fa")
+    english = persistent_language_keyboard("en")
+    assert [[item.text for item in row] for row in markup.keyboard] == [["🌐 تغییر زبان"]]
+    assert [[item.text for item in row] for row in english.keyboard] == [["🌐 Change language"]]
     assert markup.resize_keyboard is True
     assert markup.is_persistent is True
 
@@ -75,3 +78,11 @@ def test_english_catalog_and_persian_fallback_are_ready() -> None:
     i18n = I18n()
     assert i18n.text("menu.catalog", "en") == "Shop"
     assert i18n.text("menu.catalog", "unknown") == "فروشگاه"
+
+
+def test_customer_interface_and_catalog_names_translate_without_mutating_source() -> None:
+    persian = "<b>💰 کیف پول</b>\nموجودی قابل استفاده: 20,000 تومان"
+    assert translate_text(persian, "en") == ("<b>💰 Wallet</b>\nAvailable balance: 20,000 Toman")
+    assert category_name("خدمات تلگرام", "en") == "Telegram Services"
+    assert product_name("فالوور واقعی اینستاگرام", "en") == "Followers Real Instagram"
+    assert category_name("خدمات تلگرام", "fa") == "خدمات تلگرام"

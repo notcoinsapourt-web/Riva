@@ -45,15 +45,30 @@ def keyboard(*rows: list[InlineKeyboardButton]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=list(rows))
 
 
-def persistent_home_keyboard() -> ReplyKeyboardMarkup:
-    """Keep a large, single-tap home button below the Telegram composer."""
+def persistent_language_keyboard(language: str = "fa") -> ReplyKeyboardMarkup:
+    """Keep language switching available below the Telegram composer."""
 
     return ReplyKeyboardMarkup(
-        keyboard=[[reply_button("🏠 منو", emoji_key="home")]],
+        keyboard=[
+            [
+                reply_button(
+                    "🌐 Change language" if language == "en" else "🌐 تغییر زبان",
+                    emoji_key="language",
+                )
+            ]
+        ],
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder="یک گزینه را انتخاب کنید",
+        input_field_placeholder=(
+            "Choose an option" if language == "en" else "یک گزینه را انتخاب کنید"
+        ),
     )
+
+
+def persistent_home_keyboard() -> ReplyKeyboardMarkup:
+    """Backward-compatible alias for older imports and cached clients."""
+
+    return persistent_language_keyboard()
 
 
 async def edit_or_send(

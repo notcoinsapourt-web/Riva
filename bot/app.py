@@ -12,6 +12,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from bot.config import AppSettings, get_settings
 from bot.core.emojis import PremiumEmojiFallbackMiddleware
+from bot.core.language import LocalizationMiddleware
 from bot.core.middlewares import (
     BusinessErrorMiddleware,
     DatabaseSessionMiddleware,
@@ -37,8 +38,8 @@ def build_dispatcher(database: Database, settings: AppSettings) -> Dispatcher:
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.update.outer_middleware(BusinessErrorMiddleware())
     dispatcher.update.outer_middleware(DatabaseSessionMiddleware(database.session_factory))
-    dispatcher.update.outer_middleware(RateLimitMiddleware(settings))
     dispatcher.update.outer_middleware(UserContextMiddleware())
+    dispatcher.update.outer_middleware(RateLimitMiddleware(settings))
     dispatcher.include_routers(
         start_router,
         admin_router,
@@ -70,6 +71,7 @@ async def run() -> None:
                 link_preview_is_disabled=True,
             ),
         )
+        bot.session.middleware(LocalizationMiddleware())
         bot.session.middleware(PremiumEmojiFallbackMiddleware())
         dispatcher = build_dispatcher(database, settings)
         await _set_commands(bot)
@@ -96,6 +98,16 @@ async def _set_commands(bot: Bot) -> None:
             BotCommand(command="cancel", description="لغو عملیات جاری"),
         ],
         scope=BotCommandScopeAllPrivateChats(),
+    )
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Start and main menu"),
+            BotCommand(command="menu", description="Show shop menu"),
+            BotCommand(command="admin", description="Admin panel"),
+            BotCommand(command="cancel", description="Cancel current operation"),
+        ],
+        scope=BotCommandScopeAllPrivateChats(),
+        language_code="en",
     )
 
 
