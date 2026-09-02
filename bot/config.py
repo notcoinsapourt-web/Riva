@@ -18,6 +18,9 @@ class AppSettings(BaseSettings):
     timezone: str = "Asia/Tehran"
     log_level: str = "INFO"
 
+    order_report_channel_id: str = ""
+    order_report_button_emoji_id: str = ""
+
     payments_enabled: bool = False
     payment_integration_confirmed: bool = False
     payment_callback_base_url: str = ""
@@ -64,6 +67,21 @@ class AppSettings(BaseSettings):
         """Two explicit switches prevent accidentally activating real payments."""
 
         return self.payments_enabled and self.payment_integration_confirmed
+
+    @property
+    def order_report_target(self) -> str | int | None:
+        """Return a Bot API compatible channel target without guessing Telegram IDs."""
+
+        value = self.order_report_channel_id.strip()
+        if not value:
+            return None
+        if value.lstrip("-").isdigit():
+            return int(value)
+        if value.startswith("https://t.me/"):
+            value = value.removeprefix("https://t.me/").strip("/")
+        if value.startswith("t.me/"):
+            value = value.removeprefix("t.me/").strip("/")
+        return value if value.startswith("@") else f"@{value}"
 
 
 @lru_cache(maxsize=1)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Iterable
 
 from aiogram import Bot
@@ -11,9 +12,15 @@ from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import Admin, User
+from bot.database.models import Admin, Order, User
+from bot.services.order_reports import OrderReportService
 
 logger = logging.getLogger(__name__)
+
+_NEW_ORDER_RE = re.compile(
+    r"<b>📦 سفارش جدید</b>.*?شماره:\s*<code>([^<]+)</code>",
+    re.DOTALL,
+)
 
 
 class NotificationService:
@@ -37,7 +44,9 @@ class NotificationService:
         return list(dict.fromkeys([*database_ids, *configured_ids]))
 
     async def notify_admins(self, text: str) -> tuple[int, int]:
-        return await self.send_many(await self.admin_ids(), text)
+        result = await self.send_many(await self.admin_ids(), text)
+        await self._maybe_publish_order_report(text)
+        return result
 
     async def notify_admins_receipt(
         self,
@@ -122,3 +131,19 @@ class NotificationService:
             if delay:
                 await asyncio.sleep(delay)
         return sent, failed
+
+    async def _maybe_publish_order_report(self, text: str) -> None:
+        match = _NEW_ORDER_RE.search(text)
+        if match is None:
+            return
+        order_number = match.group(1).strip()
+        order_id = await self.session.scalar(
+            select(Order.id).where(Order.number == order_number)
+        )
+        if order_id is None:
+            logger.warning(
+                "Order report trigger could not resolve order number=%s",
+                order_number,
+            )
+            return
+        await OrderReportService(self.session, self.bot).send_order(order_id)
