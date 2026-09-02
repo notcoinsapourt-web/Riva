@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
@@ -29,6 +30,7 @@ from bot.modules.referral.router import router as referral_router
 from bot.modules.start.router import router as start_router
 from bot.modules.tickets.router import router as tickets_router
 from bot.modules.wallet.router import router as wallet_router
+from bot.services.order_reports import run_order_report_worker
 from bot.web.health import HealthServer
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ async def run() -> None:
     _prepare_sqlite_directory(settings.database_url)
     database = Database.create(settings.database_url)
     health = HealthServer(settings.port)
+    report_task: asyncio.Task[None] | None = None
     if settings.health_server_enabled:
         await health.start()
     try:
@@ -73,6 +76,11 @@ async def run() -> None:
         )
         bot.session.middleware(LocalizationMiddleware())
         bot.session.middleware(PremiumEmojiFallbackMiddleware())
+        if settings.order_report_target is not None:
+            report_task = asyncio.create_task(
+                run_order_report_worker(database.session_factory, bot, settings),
+                name="order-report-reconciler",
+            )
         dispatcher = build_dispatcher(database, settings)
         await _set_commands(bot)
         await bot.delete_webhook(drop_pending_updates=False)
@@ -83,6 +91,10 @@ async def run() -> None:
             allowed_updates=dispatcher.resolve_used_update_types(),
         )
     finally:
+        if report_task is not None:
+            report_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await report_task
         health.ready = False
         if settings.health_server_enabled:
             await health.stop()
