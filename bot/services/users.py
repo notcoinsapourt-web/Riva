@@ -30,7 +30,9 @@ class UserService:
                 username=telegram_user.username,
                 first_name=telegram_user.first_name or "کاربر",
                 last_name=telegram_user.last_name,
-                language_code=normalize_language(telegram_user.language_code),
+                # The shop must always open in Persian on a user's very first start.
+                # Telegram's client language must not silently opt a new user into English.
+                language_code="fa",
                 referral_code=await self._new_referral_code(),
                 last_seen_at=datetime.now(UTC),
             )
