@@ -4,6 +4,7 @@ import logging
 
 from aiogram import Router
 from aiogram.enums import ChatMemberStatus, ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import ChatMemberUpdated, Message
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,8 +58,8 @@ async def bind_from_private_channel_command(
 ) -> None:
     """Fallback binding path when the bot was already an admin before deployment.
 
-    This command intentionally sends no acknowledgement into the channel. Once
-    bound, the campaign worker publishes its first normal-looking report card.
+    The bind command is deleted after success so the private test channel stays
+    visually identical to the final report channel.
     """
 
     if not settings.report_test_campaign_enabled:
@@ -75,11 +76,21 @@ async def bind_from_private_channel_command(
             actor_user_id=None,
             force=True,
         )
-        if bound:
-            logger.info(
-                "Private report test channel bound through /bindreporttest chat_id=%s",
+        if not bound:
+            return
+
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            logger.warning(
+                "Private report test channel bound but bind command could not be deleted chat_id=%s",
                 message.chat.id,
             )
+
+        logger.info(
+            "Private report test channel bound through /bindreporttest chat_id=%s",
+            message.chat.id,
+        )
     except Exception:
         logger.exception(
             "Failed to bind private report test channel from command chat_id=%s",
