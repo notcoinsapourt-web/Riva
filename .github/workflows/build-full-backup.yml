@@ -33,8 +33,10 @@ jobs:
           cp -a backup/. "$OUT/backup-docs/"
 
           # Ensure the bundle contains an explicit local main ref at the exact
-          # Production source commit, in addition to the backup branch/history.
+          # Production source commit. Switch HEAD to main so a plain clone of
+          # the bundle opens directly on the Production source snapshot.
           git branch -f main "$SOURCE_SHA"
+          git checkout main
           git bundle create "$OUT/git/Riva-full-history.bundle" --all
           git bundle verify "$OUT/git/Riva-full-history.bundle"
 
