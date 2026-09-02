@@ -32,8 +32,11 @@ jobs:
           # Human/AI restoration documents created only on the isolated backup branch.
           cp -a backup/. "$OUT/backup-docs/"
 
-          # Full Git history for future forensic restoration.
+          # Ensure the bundle contains an explicit local main ref at the exact
+          # Production source commit, in addition to the backup branch/history.
+          git branch -f main "$SOURCE_SHA"
           git bundle create "$OUT/git/Riva-full-history.bundle" --all
+          git bundle verify "$OUT/git/Riva-full-history.bundle"
 
           cat > "$OUT/SOURCE_COMMIT.txt" <<EOF
           Repository: notcoinsapourt-web/Riva
