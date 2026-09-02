@@ -4,6 +4,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
+from bot.core.i18n import I18n
+from bot.core.language import is_english
 from bot.core.ui import button
 from bot.services.settings import SettingsService
 
@@ -17,23 +19,39 @@ MODULE_ACTIONS = {
     "rules": "rules",
 }
 
+MODULE_I18N_KEYS = {
+    "catalog": "menu.catalog",
+    "orders": "menu.orders",
+    "wallet": "menu.wallet",
+    "referral": "menu.referral",
+    "tickets": "menu.tickets",
+    "profile": "menu.profile",
+    "rules": "menu.rules",
+}
+
 
 class MenuService:
     def __init__(self, session: AsyncSession) -> None:
         self.settings = SettingsService(session)
 
-    async def main(self, *, is_admin: bool = False) -> InlineKeyboardMarkup:
+    async def main(self, *, is_admin: bool = False, language: str = "fa") -> InlineKeyboardMarkup:
         modules = await self.settings.enabled_modules(menu_only=True)
+        i18n = I18n()
         items: dict[str, InlineKeyboardButton] = {}
         for module in modules:
             action = MODULE_ACTIONS.get(module.name)
             if action is None:
                 continue
-            label = " ".join(
-                part for part in (module.emoji, module.menu_text or module.display_name) if part
-            )
+            configured_label = module.menu_text or module.display_name
+            translated_label = i18n.text(MODULE_I18N_KEYS.get(module.name, ""), language)
+            menu_label = translated_label if is_english(language) else configured_label
+            label = " ".join(part for part in (module.emoji, menu_label) if part)
             if module.name == "catalog":
-                label = f"💎 خدمات مجازی | {module.menu_text or module.display_name}"
+                label = (
+                    f"💎 Digital Services | {menu_label}"
+                    if is_english(language)
+                    else f"💎 خدمات مجازی | {configured_label}"
+                )
             items[module.name] = button(
                 label,
                 callback_data=NavCallback(action=action).pack(),

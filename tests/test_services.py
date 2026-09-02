@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
@@ -34,9 +35,11 @@ from bot.services.admin import AdminAccessService
 from bot.services.catalog import CatalogService
 from bot.services.coupons import CouponService
 from bot.services.deposits import DepositService
+from bot.services.notifications import NotificationService
 from bot.services.orders import OrderService
 from bot.services.payments import PaymentService
 from bot.services.settings import SettingsService
+from bot.services.users import UserService
 from bot.services.wallet import WalletService
 
 
@@ -129,6 +132,29 @@ async def test_manual_deposit_approval_credits_wallet_exactly_once(database) -> 
             )
             == 1
         )
+
+
+@pytest.mark.asyncio
+async def test_receipt_image_is_sent_to_support_admin(database) -> None:
+    settings = AppSettings(bot_token="123456:TEST", admin_ids=(7001,))
+    await seed_database(database.session_factory, settings)
+    bot = AsyncMock()
+
+    async with database.session_factory() as session:
+        sent, failed = await NotificationService(session, bot).notify_admins_receipt(
+            file_id="telegram-receipt-file",
+            file_type="photo",
+            caption="فیش پرداخت جدید",
+            delay=0,
+        )
+
+    assert (sent, failed) == (1, 0)
+    bot.send_photo.assert_awaited_once_with(
+        7001,
+        "telegram-receipt-file",
+        caption="فیش پرداخت جدید",
+        reply_markup=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -313,6 +339,17 @@ async def test_profile_and_rules_are_editable_modules(database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_explicit_user_language_is_persisted(database) -> None:
+    async with database.session_factory() as session:
+        user = await _customer(session, telegram_id=7010)
+        service = UserService(session)
+        updated = await service.set_language(user.id, "en")
+        assert updated.language_code == "en"
+        loaded = await service.get_by_id(user.id)
+        assert loaded.language_code == "en"
+
+
+@pytest.mark.asyncio
 async def test_catalog_seed_is_complete_and_idempotent(database) -> None:
     settings = AppSettings(bot_token="123456:TEST", admin_ids=())
     await seed_database(database.session_factory, settings)
@@ -369,8 +406,8 @@ async def test_wallet_destinations_seed_once_and_admin_edits_persist(database) -
             ).all()
         }
         assert values["wallet_card_enabled"] == "true"
-        assert values["wallet_card_number"] == "6219861487954959"
-        assert values["wallet_card_holder"] == "علیرضا"
+        assert values["wallet_card_number"] == "6219861440311393"
+        assert values["wallet_card_holder"] == "میرزایی"
         assert "به مدت یک ساعت اعتبار دارد" in values["wallet_card_text"]
         assert "امکان برداشت وجه از کیف پول وجود ندارد" in values["wallet_card_text"]
         assert values["wallet_crypto_enabled"] == "true"

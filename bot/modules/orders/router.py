@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback, OrderCallback
 from bot.core.formatting import ORDER_STATUS_FA, dt, h, money
+from bot.core.language import is_english
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.models import User
 from bot.services.orders import OrderService
@@ -30,7 +31,11 @@ async def list_orders(callback: CallbackQuery, session: AsyncSession, db_user: U
         for order in orders
     ]
     rows.append([button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack())])
-    text = await settings.module_content("orders", "<b>📦 سفارش‌های من</b>")
+    text = (
+        "<b>📦 My orders</b>"
+        if is_english(db_user.language_code)
+        else await settings.module_content("orders", "<b>📦 سفارش‌های من</b>")
+    )
     text += "\n\n"
     text += (
         "برای مشاهده جزئیات، یک سفارش را انتخاب کنید." if orders else "هنوز سفارشی ثبت نکرده‌اید."

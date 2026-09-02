@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
 from bot.core.formatting import money
+from bot.core.language import is_english
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.models import Referral, User
 from bot.services.settings import SettingsService
@@ -40,7 +41,11 @@ async def referral_home(
         or 0
     )
     reward = await settings.get_int("referral_reward", 0)
-    intro = await settings.module_content("referral", "<b>🎁 دعوت دوستان</b>")
+    intro = (
+        "<b>🎁 Invite friends</b>"
+        if is_english(db_user.language_code)
+        else await settings.module_content("referral", "<b>🎁 دعوت دوستان</b>")
+    )
     await edit_or_send(
         callback,
         intro + "\n\n"

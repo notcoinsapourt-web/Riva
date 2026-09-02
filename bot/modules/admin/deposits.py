@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback, DepositCallback
 from bot.core.formatting import dt, h, money
+from bot.core.language import translate_text
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import DepositMethod, DepositStatus
 from bot.database.models import User
@@ -123,7 +124,10 @@ async def review_deposit(
         request = await service.reject(callback_data.request_id, db_user.id)
         user_text = f"❌ درخواست شارژ <code>{request.number}</code> تأیید نشد."
     try:
-        await bot.send_message(request.user.telegram_id, user_text)
+        await bot.send_message(
+            request.user.telegram_id,
+            translate_text(user_text, request.user.language_code),
+        )
     except TelegramAPIError:
         pass
     await callback.answer("نتیجه ثبت شد.", show_alert=True)

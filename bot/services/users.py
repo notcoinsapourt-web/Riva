@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from bot.core.exceptions import NotFoundError, ValidationError
+from bot.core.language import normalize_language
 from bot.database.models import Admin, Referral, User, Wallet
 
 
@@ -29,7 +30,7 @@ class UserService:
                 username=telegram_user.username,
                 first_name=telegram_user.first_name or "کاربر",
                 last_name=telegram_user.last_name,
-                language_code=telegram_user.language_code or "fa",
+                language_code=normalize_language(telegram_user.language_code),
                 referral_code=await self._new_referral_code(),
                 last_seen_at=datetime.now(UTC),
             )
@@ -39,7 +40,6 @@ class UserService:
             user.username = telegram_user.username
             user.first_name = telegram_user.first_name or user.first_name
             user.last_name = telegram_user.last_name
-            user.language_code = telegram_user.language_code or user.language_code
             user.last_seen_at = datetime.now(UTC)
             if user.wallet is None:
                 user.wallet = Wallet(balance=0)
@@ -104,6 +104,12 @@ class UserService:
         if user.admin and blocked:
             raise ValidationError("حساب مدیر را نمی‌توان مسدود کرد.")
         user.is_blocked = blocked
+        await self.session.commit()
+        return user
+
+    async def set_language(self, user_id: int, language: str) -> User:
+        user = await self.get_by_id(user_id)
+        user.language_code = normalize_language(language)
         await self.session.commit()
         return user
 

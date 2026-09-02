@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.core.callbacks import DepositCallback, NavCallback
 from bot.core.exceptions import ValidationError
 from bot.core.formatting import dt, h, money
+from bot.core.language import is_english
 from bot.core.states import WalletDepositState
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import DepositMethod
@@ -30,7 +31,9 @@ async def wallet_home(callback: CallbackQuery, session: AsyncSession, db_user: U
     settings = SettingsService(session)
     await settings.require_module("wallet")
     user = await UserService(session).get_by_id(db_user.id)
-    custom_text = await settings.module_content("wallet")
+    custom_text = (
+        "" if is_english(db_user.language_code) else await settings.module_content("wallet")
+    )
     await edit_or_send(
         callback,
         "<b>💰 کیف پول</b>\n\n"
@@ -104,14 +107,24 @@ async def deposit_start(
         card_number = await settings.get("wallet_card_number")
         if not await settings.get_bool("wallet_card_enabled") or not card_number:
             raise ValidationError("واریز کارت در حال حاضر غیرفعال است.")
+        card_instructions = (
+            "❌ This payment request is valid for one hour.\n"
+            "‼️ Transfer the exact amount shown above.\n"
+            "‼️ Wallet funds cannot be withdrawn.\n"
+            "‼️ You are responsible for transfers sent to the wrong destination.\n\n"
+            "After payment, tap “I paid | Send receipt” and upload the receipt.\n"
+            "💵 Your wallet will be credited after admin approval."
+            if is_english()
+            else await settings.get("wallet_card_text")
+        )
         destination = (
-            f"برای افزایش موجودی، مبلغ <b>{money(amount)}</b> را به شماره کارت زیر "
+            f"برای افزایش موجودی، مبلغ <b>{money(amount)}</b> را به شماره‌ی حساب زیر "
             "واریز کنید 👇\n\n"
-            "<code>━━━━━━━━━━━━━━━━</code>\n"
+            "<code>====================</code>\n"
             f"<code>{h(card_number)}</code>\n"
             f"<b>{h(await settings.get('wallet_card_holder', '—'))}</b>\n"
-            "<code>━━━━━━━━━━━━━━━━</code>\n\n"
-            f"{await settings.get('wallet_card_text')}"
+            "<code>====================</code>\n\n"
+            f"{card_instructions}"
         )
         destination_value = card_number
         copy_label = "📋 کپی شماره کارت"
@@ -126,6 +139,12 @@ async def deposit_start(
         quote = await ExchangeRateService().usdt_toman(amount)
         network = await settings.get("wallet_crypto_network", "BEP20")
         local_time = quote.fetched_at.astimezone(ZoneInfo("Asia/Tehran")).strftime("%H:%M:%S")
+        crypto_instructions = (
+            f"Send only USDT on the {h(network)} network. Using a different network may "
+            "permanently lose your funds. A transaction hash and receipt are required."
+            if is_english()
+            else await settings.get("wallet_crypto_text")
+        )
         destination = (
             f"مبلغ شارژ درخواستی: <b>{money(amount)}</b>\n\n"
             f"مبلغ قابل پرداخت: <b>{quote.usdt_text} USDT</b>\n"
@@ -135,7 +154,7 @@ async def deposit_start(
             "ارز: <b>USDT</b>\n"
             f"شبکه: <b>{h(network)}</b>\n"
             f"آدرس: <code>{h(crypto_address)}</code>\n\n"
-            f"{await settings.get('wallet_crypto_text')}\n\n"
+            f"{crypto_instructions}\n\n"
             "⏱ این نرخ و مقدار USDT تا ۱۵ دقیقه معتبر است. مبلغ را دقیقاً مطابق "
             "عدد بالا ارسال کنید."
         )
@@ -315,19 +334,49 @@ async def deposit_proof(
         transaction_hash=data.get("transaction_hash"),
     )
     await state.clear()
-    await NotificationService(session, bot).notify_admins(
-        f"<b>💳 درخواست شارژ جدید</b>\n\n"
+    method_text = (
+        "کارت‌به‌کارت"
+        if request.method == DepositMethod.CARD
+        else f"تتر USDT ({h(data.get('crypto_network', 'BEP20'))})"
+    )
+    notification_text = (
+        f"<b>🔔 فیش پرداخت جدید</b>\n\n"
         f"شماره: <code>{request.number}</code>\n"
+        f"روش: <b>{method_text}</b>\n"
         f"مبلغ: <b>{money(request.amount)}</b>\n"
-        f"کاربر: <code>{db_user.telegram_id}</code>"
+        f"کاربر: <b>{h(db_user.first_name)}</b>\n"
+        f"شناسه تلگرام: <code>{db_user.telegram_id}</code>"
         + (
             f"\nمعادل اعلام‌شده: <b>{h(data.get('crypto_amount'))} USDT</b>"
             f"\nنرخ: <b>{h(data.get('crypto_rate_toman'))} تومان</b>"
+            f"\nهش تراکنش: <code>{h(data.get('transaction_hash'))}</code>"
             if data.get("deposit_method") == DepositMethod.CRYPTO.value
             else ""
         )
         + "\n\n"
-        "از پنل مدیریت ← شارژهای دستی بررسی کنید."
+        "رسید را بررسی و نتیجه را از همین پیام ثبت کنید."
+    )
+    review_markup = keyboard(
+        [
+            button(
+                "✅ تأیید و افزایش موجودی",
+                callback_data=DepositCallback(action="approve", request_id=request.id).pack(),
+                style="success",
+            )
+        ],
+        [
+            button(
+                "❌ رد درخواست",
+                callback_data=DepositCallback(action="reject", request_id=request.id).pack(),
+                style="danger",
+            )
+        ],
+    )
+    await NotificationService(session, bot).notify_admins_receipt(
+        file_id=file_id,
+        file_type=file_type,
+        caption=notification_text,
+        reply_markup=review_markup,
     )
     await message.answer(
         f"✅ فیش شما با شماره <code>{request.number}</code> ثبت شد. "

@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, ReactionTypeEmoji
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
 from bot.core.formatting import h, money
-from bot.core.ui import button, edit_or_send, keyboard
+from bot.core.language import (
+    is_english,
+    reset_current_language,
+    set_current_language,
+)
+from bot.core.ui import button, edit_or_send, keyboard, persistent_language_keyboard
 from bot.database.models import User
 from bot.services.channels import ChannelService
 from bot.services.menu import MenuService
@@ -27,9 +33,17 @@ async def start(
     state: FSMContext,
 ) -> None:
     await state.clear()
+    try:
+        await message.react([ReactionTypeEmoji(emoji="⚡")], is_big=True)
+    except TelegramAPIError:
+        pass
     payload = command.args or ""
     if payload.startswith("ref_"):
         await UserService(session).apply_referral(db_user, payload.removeprefix("ref_"))
+    await message.answer(
+        "از دکمه پایین می‌توانید زبان ربات را تغییر دهید.",
+        reply_markup=persistent_language_keyboard(db_user.language_code),
+    )
     await show_home(message, session=session, user=db_user)
 
 
@@ -41,12 +55,51 @@ async def menu_command(
     await show_home(message, session=session, user=db_user)
 
 
-@router.message(F.text == "🏠 منو")
-async def persistent_menu(
+@router.message(F.text.in_({"🌐 تغییر زبان", "🌐 Change language", "🏠 منو"}))
+async def language_menu(
     message: Message, session: AsyncSession, db_user: User, state: FSMContext
 ) -> None:
     await state.clear()
-    await show_home(message, session=session, user=db_user)
+    await message.answer(
+        "<b>🌐 انتخاب زبان</b>\n\nزبان موردنظر را انتخاب کنید:",
+        reply_markup=keyboard(
+            [
+                button(
+                    "🇮🇷 فارسی",
+                    callback_data=NavCallback(action="lang_fa").pack(),
+                    style="primary",
+                ),
+                button(
+                    "🇬🇧 English",
+                    callback_data=NavCallback(action="lang_en").pack(),
+                    style="primary",
+                ),
+            ]
+        ),
+    )
+
+
+@router.callback_query(NavCallback.filter(F.action.in_({"lang_fa", "lang_en"})))
+async def change_language(
+    callback: CallbackQuery,
+    callback_data: NavCallback,
+    session: AsyncSession,
+    db_user: User,
+    state: FSMContext,
+) -> None:
+    language = callback_data.action.removeprefix("lang_")
+    user = await UserService(session).set_language(db_user.id, language)
+    await state.clear()
+    token = set_current_language(language)
+    try:
+        if isinstance(callback.message, Message):
+            await callback.message.answer(
+                "زبان ربات با موفقیت تغییر کرد.",
+                reply_markup=persistent_language_keyboard(language),
+            )
+        await show_home(callback, session=session, user=user)
+    finally:
+        reset_current_language(token)
 
 
 @router.message(Command("cancel"))
@@ -72,7 +125,11 @@ async def profile(callback: CallbackQuery, session: AsyncSession, db_user: User)
     await SettingsService(session).require_module("profile")
     user = await UserService(session).get_by_id(db_user.id)
     currency = await SettingsService(session).get("currency", "تومان")
-    custom_intro = await SettingsService(session).module_content("profile")
+    custom_intro = (
+        ""
+        if is_english(db_user.language_code)
+        else await SettingsService(session).module_content("profile")
+    )
     text = (
         "<b>👤 حساب کاربری</b>\n\n"
         + (custom_intro + "\n\n" if custom_intro else "")
@@ -92,7 +149,7 @@ async def profile(callback: CallbackQuery, session: AsyncSession, db_user: User)
 
 
 @router.callback_query(NavCallback.filter(F.action == "rules"))
-async def rules(callback: CallbackQuery, session: AsyncSession) -> None:
+async def rules(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
     settings = SettingsService(session)
     await settings.require_module("rules")
     default_text = (
@@ -103,9 +160,19 @@ async def rules(callback: CallbackQuery, session: AsyncSession) -> None:
         "• قیمت نهایی پیش از پرداخت نمایش داده می‌شود.\n"
         "• وضعیت سفارش و پاسخ پشتیبانی از همین ربات اعلام می‌شود."
     )
+    rules_text = (
+        "<b>📄 Purchase Guide & Rules</b>\n\n"
+        "• Read the product description before buying.\n"
+        "• Send only the requested public link or account information.\n"
+        "• Never send passwords, login codes, or banking information.\n"
+        "• The final price is shown before payment.\n"
+        "• Order updates and support replies are delivered through this bot."
+        if is_english(db_user.language_code)
+        else await settings.module_content("rules", default_text)
+    )
     await edit_or_send(
         callback,
-        await settings.module_content("rules", default_text),
+        rules_text,
         reply_markup=keyboard(
             [
                 button(
@@ -147,7 +214,12 @@ async def show_home(event: Message | CallbackQuery, *, session: AsyncSession, us
                 reply_markup=keyboard(*rows),
             )
             return
-    welcome = await settings.get("welcome_text", "سلام {first_name} 👋")
+    welcome = (
+        "Hello {first_name} 👋\nWelcome to Arvan Coin.\n\n"
+        "Choose the service you need from the menu below."
+        if is_english(hydrated.language_code)
+        else await settings.get("welcome_text", "سلام {first_name} 👋")
+    )
     text = (
         welcome.replace("{first_name}", h(hydrated.first_name))
         .replace("{balance}", money(hydrated.wallet.balance, currency))
@@ -156,5 +228,7 @@ async def show_home(event: Message | CallbackQuery, *, session: AsyncSession, us
     await edit_or_send(
         event,
         text,
-        reply_markup=await MenuService(session).main(is_admin=is_admin),
+        reply_markup=await MenuService(session).main(
+            is_admin=is_admin, language=hydrated.language_code
+        ),
     )

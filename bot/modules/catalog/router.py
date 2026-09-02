@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.core.callbacks import CatalogCallback, NavCallback
 from bot.core.exceptions import ValidationError
 from bot.core.formatting import compact_text, h, money
+from bot.core.language import category_name, is_english, product_name
 from bot.core.states import CheckoutState
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.models import User
@@ -42,7 +43,12 @@ CATEGORY_ORDER = (
 
 
 @router.callback_query(NavCallback.filter(F.action == "catalog"))
-async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+async def show_catalog(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    db_user: User,
+    state: FSMContext,
+) -> None:
     await state.clear()
     await SettingsService(session).require_module("catalog")
     categories = await CatalogService(session).categories()
@@ -51,7 +57,7 @@ async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FS
 
     def category_button(category, *, featured: bool = False):
         return button(
-            f"{category.emoji} {category.name}",
+            f"{category.emoji} {category_name(category.name, db_user.language_code)}",
             callback_data=CatalogCallback(action="category", entity_id=category.id).pack(),
             custom_emoji_id=category.custom_emoji_id,
             style="danger" if featured else "primary",
@@ -74,7 +80,11 @@ async def show_catalog(callback: CallbackQuery, session: AsyncSession, state: FS
             )
         ]
     )
-    custom_text = await SettingsService(session).module_content("catalog")
+    custom_text = (
+        ""
+        if is_english(db_user.language_code)
+        else await SettingsService(session).module_content("catalog")
+    )
     text = (
         (custom_text or "<b>🛍 فروشگاه خدمات مجازی</b>\n\nیک دسته‌بندی را انتخاب کنید 👇")
         if categories
@@ -88,6 +98,7 @@ async def show_category(
     callback: CallbackQuery,
     callback_data: CatalogCallback,
     session: AsyncSession,
+    db_user: User,
 ) -> None:
     await SettingsService(session).require_module("catalog")
     service = CatalogService(session)
@@ -98,7 +109,8 @@ async def show_category(
     visible = products[start : start + PAGE_SIZE]
     product_buttons = [
         button(
-            f"{product.emoji} {compact_text(display_name(product), 22)}",
+            f"{product.emoji} "
+            f"{compact_text(product_name(display_name(product), db_user.language_code), 22)}",
             callback_data=CatalogCallback(action="product", entity_id=product.id).pack(),
             custom_emoji_id=product.custom_emoji_id,
             style="primary",
@@ -137,9 +149,14 @@ async def show_category(
             button("🏠 منوی اصلی", callback_data=NavCallback(action="home").pack(), style="danger"),
         ]
     )
+    category_description = (
+        f"Browse available {category_name(category.name, 'en')} products and services."
+        if is_english(db_user.language_code)
+        else category.description or ""
+    )
     text = (
-        f"<b>{h(category.emoji)} {h(category.name)}</b>\n\n"
-        f"{h(category.description or '')}\n\n"
+        f"<b>{h(category.emoji)} {h(category_name(category.name, db_user.language_code))}</b>\n\n"
+        f"{h(category_description)}\n\n"
         "یک محصول را انتخاب کنید 👇"
     )
     if not products:
@@ -152,10 +169,11 @@ async def show_product(
     callback: CallbackQuery,
     callback_data: CatalogCallback,
     session: AsyncSession,
+    db_user: User,
 ) -> None:
     product = await CatalogService(session).product(callback_data.entity_id)
     policy = quantity_policy(product)
-    product_name = display_name(product)
+    localized_product_name = product_name(display_name(product), db_user.language_code)
     requirement, safety = order_requirements(product)
     pricing = (
         f"💳 نرخ پایه: <b>{money(product.price)}</b> برای "
@@ -166,11 +184,16 @@ async def show_product(
         if policy
         else f"💳 قیمت محصول: <b>{money(product.price)}</b>\n📦 نوع سفارش: <b>ثابت</b>"
     )
+    localized_description = (
+        "A secure digital service with clear order requirements and support."
+        if is_english(db_user.language_code)
+        else product.description
+    )
     text = (
-        f"<b>{h(product.emoji)} {h(product_name)}</b>\n\n"
-        f"{h(product.description)}\n\n"
+        f"<b>{h(product.emoji)} {h(localized_product_name)}</b>\n\n"
+        f"{h(localized_description)}\n\n"
         "⚡ شروع: <b>پس از ثبت و بررسی سفارش</b>\n"
-        f"🎯 دسته‌بندی: <b>{h(product.category.name)}</b>\n"
+        f"🎯 دسته‌بندی: <b>{h(category_name(product.category.name, db_user.language_code))}</b>\n"
         "✅ قیمت نهایی قبل از پرداخت نمایش داده می‌شود\n"
         f"📝 اطلاعات لازم: {h(requirement)}\n"
         f"🔐 {h(safety)}\n\n"
@@ -233,7 +256,7 @@ async def begin_checkout(
         await state.set_state(CheckoutState.waiting_for_quantity)
         await edit_or_send(
             callback,
-            f"<b>🔢 تعداد {h(display_name(product))}</b>\n\n"
+            f"<b>🔢 تعداد {h(product_name(display_name(product)))}</b>\n\n"
             f"تعداد دلخواه را بین <b>{policy.minimum:,}</b> تا "
             f"<b>{policy.maximum:,}</b> وارد کنید.\n"
             f"عدد باید مضربی از <b>{policy.step:,}</b> باشد.\n\n"
@@ -288,7 +311,7 @@ async def _ask_order_details(
     await state.set_state(CheckoutState.waiting_for_details)
     await edit_or_send(
         event,
-        f"<b>📝 اطلاعات لازم برای {h(display_name(product))}</b>\n\n"
+        f"<b>📝 اطلاعات لازم برای {h(product_name(display_name(product)))}</b>\n\n"
         f"🔢 تعداد انتخابی: <b>{quantity:,}</b>\n"
         f"💳 مبلغ محاسبه‌شده: <b>{money(subtotal_for(product, quantity))}</b>\n\n"
         f"<b>چه چیزی ارسال کنم؟</b>\n{h(prompt)}\n\n"
@@ -436,7 +459,7 @@ async def _show_confirmation(
     total = subtotal - discount
     text = (
         "<b>🧾 تأیید نهایی سفارش</b>\n\n"
-        f"محصول: <b>{h(display_name(product))}</b>\n"
+        f"محصول: <b>{h(product_name(display_name(product)))}</b>\n"
         f"تعداد: <b>{quantity:,}</b>\n"
         f"قیمت قبل از تخفیف: {money(subtotal)}\n"
         f"تخفیف: {money(discount)}\n"

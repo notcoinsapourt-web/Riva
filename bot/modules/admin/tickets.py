@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import AdminCallback
 from bot.core.formatting import TICKET_STATUS_FA, dt, h
+from bot.core.language import translate_text
 from bot.core.states import AdminMessageState
 from bot.core.ui import button, edit_or_send, keyboard
 from bot.database.enums import TicketSender, TicketStatus
@@ -144,7 +145,10 @@ async def ticket_close(
     try:
         await bot.send_message(
             user.telegram_id,
-            f"🔒 تیکت <code>{ticket.number}</code> توسط پشتیبانی بسته شد.",
+            translate_text(
+                f"🔒 تیکت <code>{ticket.number}</code> توسط پشتیبانی بسته شد.",
+                user.language_code,
+            ),
         )
     except TelegramAPIError:
         pass
