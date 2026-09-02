@@ -1,0 +1,80 @@
+{
+  "snapshot_generated_at": "2026-09-02T14:13:46Z",
+  "source": {
+    "repository": "notcoinsapourt-web/Riva",
+    "branch": "main",
+    "production_source_commit": "fc0e7ae989572a3297079182f729dbf8951ecd21"
+  },
+  "telegram": {
+    "bot_username": "@Persionshope_bot",
+    "bot_numeric_id": 8861317112,
+    "observed_report_chat_id": -1004360571325
+  },
+  "railway": {
+    "project_id": "d982d4fd-9723-4b06-877f-42fc3adc892d",
+    "environment_id": "50266aaf-285b-4517-baab-6f3656e480b7",
+    "environment_name": "production",
+    "service_id": "259a16b1-09df-4033-8db5-15e1b881ee23",
+    "service_name": "persian-shop-bot",
+    "service_domain": "persian-shop-bot-production.up.railway.app",
+    "builder": "RAILPACK",
+    "build_environment": "V3",
+    "runtime": "V2",
+    "start_command": "python -m bot",
+    "healthcheck_path": "/health",
+    "healthcheck_timeout_seconds": 300,
+    "region": "sfo",
+    "replicas": 1,
+    "watch_patterns": ["/**"]
+  },
+  "functional_runtime_snapshot": {
+    "order_report_reconcile_interval_seconds": 30,
+    "order_report_reconcile_hours": 2,
+    "report_test_campaign": {
+      "enabled_during_snapshot": true,
+      "days": 14,
+      "daily_count_latest": 30,
+      "minimum_price_toman_strictly_greater_than": 300000,
+      "poll_seconds": 20,
+      "stored_runtime_start_utc": "2026-09-02T12:34:25.874536+00:00",
+      "stored_runtime_end_utc": "2026-09-16T12:34:25.874536+00:00",
+      "latest_campaign_id_after_30_per_day": "2bbc3c2b14a4facd",
+      "note": "This temporary campaign should normally be disabled on a new production clone unless the owner explicitly wants report-channel testing."
+    }
+  },
+  "railway_variable_names_observed": [
+    "ADMIN_IDS",
+    "BILINGUAL_UI_VERSION",
+    "BOT_TOKEN",
+    "DATABASE_URL",
+    "DEFAULT_LANGUAGE",
+    "HEALTH_SERVER_ENABLED",
+    "LOG_LEVEL",
+    "ORDER_REPORT_CHANNEL_ID",
+    "ORDER_REPORT_RECONCILE_HOURS",
+    "ORDER_REPORT_RECONCILE_INTERVAL_SECONDS",
+    "ORDER_REPORT_TEST_REPLACE_MESSAGE_ID",
+    "PAYMENTS_ENABLED",
+    "PAYMENT_INTEGRATION_CONFIRMED",
+    "RATE_LIMIT_REQUESTS",
+    "RATE_LIMIT_WINDOW_SECONDS",
+    "REPORT_EMOJI_PRIORITY_VERSION",
+    "REPORT_TEST_BIND_VERSION",
+    "REPORT_TEST_CAMPAIGN_CHANNEL_ID",
+    "REPORT_TEST_CAMPAIGN_DAILY_COUNT",
+    "REPORT_TEST_CAMPAIGN_DAYS",
+    "REPORT_TEST_CAMPAIGN_ENABLED",
+    "REPORT_TEST_CAMPAIGN_MIN_PRICE",
+    "REPORT_TEST_CAMPAIGN_POLL_SECONDS",
+    "REPORT_TEST_CAMPAIGN_SEED",
+    "REPORT_TEST_CAMPAIGN_START",
+    "SHOP_NAME",
+    "TIMEZONE"
+  ],
+  "security": {
+    "real_bot_token_in_backup": false,
+    "real_database_password_or_url_in_backup": false,
+    "railway_secret_values_available_to_backup_process": false,
+    "note": "The connected Railway integration exposed variable names but redacted values. New secrets must be supplied by the owner when restoring."
+  }
+}
