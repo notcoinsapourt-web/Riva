@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import logging
 import random
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -30,7 +29,6 @@ SYNTHETIC_REPORT_ENTITY = "synthetic_report"
 CAMPAIGN_CHANNEL_SETTING = "report_test_campaign_channel_id"
 CAMPAIGN_CHANNEL_TITLE_SETTING = "report_test_campaign_channel_title"
 CAMPAIGN_STARTED_AT_SETTING = "report_test_campaign_started_at"
-MASKED_BUYER_RE = re.compile(r"^\d{2}\*{6}\d{2}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,8 +242,11 @@ async def _validate_private_target(bot: Bot, settings: AppSettings, target: int 
     chat_type = getattr(chat.type, "value", str(chat.type))
     if chat_type != "channel" or getattr(chat, "username", None):
         raise RuntimeError("Report test campaign target must be a private Telegram channel")
-    if settings.order_report_target is not None and str(settings.order_report_target) == str(chat.id):
-        raise RuntimeError("Report test campaign target must differ from production reports channel")
+    production_target = settings.order_report_target
+    if production_target is not None and str(production_target) == str(chat.id):
+        raise RuntimeError(
+            "Report test campaign target must differ from production reports channel"
+        )
     me = await bot.get_me()
     member = await bot.get_chat_member(chat.id, me.id)
     status = getattr(member.status, "value", str(member.status))
@@ -364,7 +365,8 @@ async def _send_slot(
         },
     )
     logger.info(
-        "Private report delivery test sent campaign=%s slot=%s product_id=%s amount=%s message_id=%s",
+        "Private report delivery test sent campaign=%s slot=%s product_id=%s "
+        "amount=%s message_id=%s",
         campaign_id,
         slot.key,
         product.id,
