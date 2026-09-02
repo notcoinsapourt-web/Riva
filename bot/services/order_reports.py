@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import escape
-from typing import ClassVar, Mapping
+from typing import ClassVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
@@ -360,7 +361,8 @@ class OrderReportService:
                     if not premium_requested:
                         raise
                     logger.warning(
-                        "Telegram rejected a Premium Emoji in order report; retrying with Unicode: %s",
+                        "Telegram rejected a Premium Emoji in order report; "
+                        "retrying with Unicode: %s",
                         exc,
                     )
                     message = await self.bot.send_message(
