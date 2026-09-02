@@ -4,20 +4,20 @@ import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape
-from typing import ClassVar
+from typing import ClassVar, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.config import AppSettings, get_settings
 from bot.core.emojis import valid_custom_emoji_id
-from bot.database.models import ActivityLog, Category, Module, Product
+from bot.database.models import ActivityLog, Category, Module, Order, Product
 from bot.services.logs import ActivityLogService
 from bot.services.orders import OrderService
 from bot.services.settings import SettingsService
@@ -25,6 +25,7 @@ from bot.services.settings import SettingsService
 logger = logging.getLogger(__name__)
 
 REPORT_ACTION = "order.channel_report_sent"
+REPORT_EMOJI_KEYS = ("shop", "buyer", "product", "amount", "time", "bot", "button")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,7 @@ class OrderReportService:
         self.settings = settings or get_settings()
 
     async def send_order(self, order_id: int) -> bool:
-        """Send one order once per running database, swallowing Telegram failures."""
+        """Send one order once, swallowing report-channel failures."""
 
         if self.settings.order_report_target is None:
             return False
@@ -85,16 +86,24 @@ class OrderReportService:
                 shop_name = await SettingsService(self.session).get(
                     "shop_name", self.settings.shop_name
                 )
+                report_emojis = await self._report_emoji_ids()
                 product_emoji_id = valid_custom_emoji_id(
                     order.product.custom_emoji_id if order.product else None
                 )
                 contextual_emoji_id = await self._contextual_emoji_id(
                     order.product.category_id if order.product else None
                 )
-                product_emoji_id = product_emoji_id or contextual_emoji_id
-                button_emoji_id = valid_custom_emoji_id(
-                    self.settings.order_report_button_emoji_id
-                ) or contextual_emoji_id or product_emoji_id
+                product_emoji_id = (
+                    product_emoji_id
+                    or report_emojis.get("product")
+                    or contextual_emoji_id
+                )
+                button_emoji_id = (
+                    report_emojis.get("button")
+                    or valid_custom_emoji_id(self.settings.order_report_button_emoji_id)
+                    or contextual_emoji_id
+                    or product_emoji_id
+                )
                 payload = OrderReportPayload(
                     buyer=mask_identifier(order.user.telegram_id),
                     product_name=order.product_name,
@@ -107,6 +116,7 @@ class OrderReportService:
                     payload,
                     shop_name=shop_name,
                     product_custom_emoji_id=product_emoji_id,
+                    text_custom_emoji_ids=report_emojis,
                     button_custom_emoji_id=button_emoji_id,
                     verify_permissions=False,
                 )
@@ -135,16 +145,67 @@ class OrderReportService:
                 )
             return True
 
+    async def reconcile_missing(self, *, limit: int = 50) -> tuple[int, int]:
+        """Retry recent orders that do not yet have a successful channel-report log."""
+
+        hours = max(1, min(int(self.settings.order_report_reconcile_hours), 168))
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        order_ids = list(
+            (
+                await self.session.scalars(
+                    select(Order.id)
+                    .where(Order.created_at >= cutoff)
+                    .order_by(Order.created_at.asc())
+                    .limit(1000)
+                )
+            ).all()
+        )
+        if not order_ids:
+            return 0, 0
+
+        entity_ids = [str(item) for item in order_ids]
+        reported = set(
+            (
+                await self.session.scalars(
+                    select(ActivityLog.entity_id).where(
+                        ActivityLog.action == REPORT_ACTION,
+                        ActivityLog.entity_type == "order",
+                        ActivityLog.entity_id.in_(entity_ids),
+                    )
+                )
+            ).all()
+        )
+        missing = [item for item in order_ids if str(item) not in reported][: max(1, limit)]
+        sent = failed = 0
+        for order_id in missing:
+            if await self.send_order(order_id):
+                sent += 1
+            else:
+                failed += 1
+        if missing:
+            logger.info(
+                "Order report reconciliation checked=%s sent=%s failed=%s",
+                len(missing),
+                sent,
+                failed,
+            )
+        return sent, failed
+
     async def send_test(self) -> ReportDelivery:
         """Send a controlled test through exactly the same report renderer/delivery path."""
 
         shop_name = await SettingsService(self.session).get(
             "shop_name", self.settings.shop_name
         )
-        product_emoji_id = await self._first_existing_premium_emoji()
-        button_emoji_id = valid_custom_emoji_id(
-            self.settings.order_report_button_emoji_id
-        ) or product_emoji_id
+        report_emojis = await self._report_emoji_ids()
+        product_emoji_id = (
+            report_emojis.get("product") or await self._first_existing_premium_emoji()
+        )
+        button_emoji_id = (
+            report_emojis.get("button")
+            or valid_custom_emoji_id(self.settings.order_report_button_emoji_id)
+            or product_emoji_id
+        )
         return await self._deliver(
             OrderReportPayload(
                 buyer="09******123",
@@ -157,9 +218,19 @@ class OrderReportService:
             ),
             shop_name=shop_name,
             product_custom_emoji_id=product_emoji_id,
+            text_custom_emoji_ids=report_emojis,
             button_custom_emoji_id=button_emoji_id,
             verify_permissions=True,
         )
+
+    async def _report_emoji_ids(self) -> dict[str, str | None]:
+        service = SettingsService(self.session)
+        result: dict[str, str | None] = {}
+        for key in REPORT_EMOJI_KEYS:
+            result[key] = valid_custom_emoji_id(
+                await service.get(f"order_report_emoji_{key}", "")
+            )
+        return result
 
     async def _contextual_emoji_id(self, category_id: int | None) -> str | None:
         candidates: list[object | None] = []
@@ -229,6 +300,7 @@ class OrderReportService:
         *,
         shop_name: str,
         product_custom_emoji_id: str | None,
+        text_custom_emoji_ids: Mapping[str, str | None] | None,
         button_custom_emoji_id: str | None,
         verify_permissions: bool,
     ) -> ReportDelivery:
@@ -255,6 +327,7 @@ class OrderReportService:
             bot_username=username,
             timezone_name=self.settings.timezone,
             custom_emoji_id=product_custom_emoji_id,
+            text_custom_emoji_ids=text_custom_emoji_ids,
         )
         fallback_text = build_report_text(
             payload,
@@ -262,31 +335,52 @@ class OrderReportService:
             bot_username=username,
             timezone_name=self.settings.timezone,
             custom_emoji_id=None,
+            text_custom_emoji_ids=None,
         )
         rich_markup = build_cta_markup(username, button_custom_emoji_id)
         fallback_markup = build_cta_markup(username, None)
 
-        premium_requested = bool(product_custom_emoji_id or button_custom_emoji_id)
-        try:
-            message = await self.bot.send_message(
-                chat.id,
-                rich_text if premium_requested else fallback_text,
-                reply_markup=rich_markup if premium_requested else fallback_markup,
-            )
-            premium_used = premium_requested
-        except TelegramBadRequest as exc:
-            if not premium_requested:
-                raise
-            logger.warning(
-                "Telegram rejected a Premium Emoji in order report; retrying with Unicode: %s",
-                exc,
-            )
-            message = await self.bot.send_message(
-                chat.id,
-                fallback_text,
-                reply_markup=fallback_markup,
-            )
-            premium_used = False
+        premium_requested = bool(
+            product_custom_emoji_id
+            or button_custom_emoji_id
+            or any(valid_custom_emoji_id(value) for value in (text_custom_emoji_ids or {}).values())
+        )
+        message = None
+        premium_used = False
+        for attempt in range(3):
+            try:
+                try:
+                    message = await self.bot.send_message(
+                        chat.id,
+                        rich_text if premium_requested else fallback_text,
+                        reply_markup=rich_markup if premium_requested else fallback_markup,
+                    )
+                    premium_used = premium_requested
+                except TelegramBadRequest as exc:
+                    if not premium_requested:
+                        raise
+                    logger.warning(
+                        "Telegram rejected a Premium Emoji in order report; retrying with Unicode: %s",
+                        exc,
+                    )
+                    message = await self.bot.send_message(
+                        chat.id,
+                        fallback_text,
+                        reply_markup=fallback_markup,
+                    )
+                    premium_used = False
+                break
+            except TelegramRetryAfter as exc:
+                if attempt >= 2:
+                    raise
+                await asyncio.sleep(min(float(exc.retry_after), 10.0))
+            except TelegramAPIError:
+                if attempt >= 2:
+                    raise
+                await asyncio.sleep(1.0 + attempt)
+
+        if message is None:
+            raise RuntimeError("Order report message was not sent.")
 
         logger.info(
             "Order report sent chat_id=%s message_id=%s premium_emoji_used=%s",
@@ -299,6 +393,26 @@ class OrderReportService:
             message_id=message.message_id,
             premium_emoji_used=premium_used,
         )
+
+
+async def run_order_report_worker(
+    session_factory: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    settings: AppSettings | None = None,
+) -> None:
+    """Continuously repair missed report deliveries for recent orders."""
+
+    config = settings or get_settings()
+    interval = max(10, min(int(config.order_report_reconcile_interval_seconds), 300))
+    while True:
+        try:
+            async with session_factory() as session:
+                await OrderReportService(session, bot, config).reconcile_missing()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Order report reconciliation worker failed")
+        await asyncio.sleep(interval)
 
 
 def mask_identifier(value: object) -> str:
@@ -315,12 +429,19 @@ def build_report_text(
     bot_username: str,
     timezone_name: str,
     custom_emoji_id: str | None,
+    text_custom_emoji_ids: Mapping[str, str | None] | None = None,
 ) -> str:
     safe_shop = escape(shop_name.strip() or "Persian Shop")
     safe_product = escape(payload.product_name.strip() or "محصول")
     quantity = max(1, int(payload.quantity))
     quantity_suffix = f" × {quantity:,}" if quantity != 1 else ""
+    icons = text_custom_emoji_ids or {}
+    shop_icon = _premium_icon("🛍", icons.get("shop"))
+    buyer_icon = _premium_icon("🐸", icons.get("buyer"))
     product_icon = _premium_icon(payload.product_emoji, custom_emoji_id)
+    amount_icon = _premium_icon("💸", icons.get("amount"))
+    time_icon = _premium_icon("📺", icons.get("time"))
+    bot_icon = _premium_icon("🤖", icons.get("bot"))
     status = "#خرید_موفق #تست" if payload.is_test else "#خرید_موفق"
     bot_line = (
         f'<a href="https://t.me/{escape(bot_username)}">@{escape(bot_username)}</a>'
@@ -330,12 +451,12 @@ def build_report_text(
     timestamp = format_timestamp(payload.created_at, timezone_name)
     return (
         f"<b>گزارشات {safe_shop} | خرید از {safe_shop}</b>\n\n"
-        f"🛍 گزارش <b>{status}</b>\n\n"
-        f"🐸 خریدار: <code>{escape(payload.buyer)}</code>\n"
+        f"{shop_icon} گزارش <b>{status}</b>\n\n"
+        f"{buyer_icon} خریدار: <code>{escape(payload.buyer)}</code>\n"
         f"{product_icon} سفارش: <b>{safe_product}{quantity_suffix}</b>\n"
-        f"💸 مبلغ پرداخت شده: <b>{int(payload.amount):,} تومان</b>\n\n"
-        f"📺 <code>{timestamp}</code>\n\n"
-        f"🤖 {bot_line}"
+        f"{amount_icon} مبلغ پرداخت شده: <b>{int(payload.amount):,} تومان</b>\n\n"
+        f"{time_icon} <code>{timestamp}</code>\n\n"
+        f"{bot_icon} {bot_line}"
     )
 
 
