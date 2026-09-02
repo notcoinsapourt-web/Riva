@@ -8,6 +8,7 @@ from bot.services.order_reports import (
     build_report_text,
     format_timestamp,
     mask_identifier,
+    resolve_report_product_emoji_id,
 )
 
 
@@ -60,6 +61,25 @@ def test_premium_product_icon_and_url_button_are_supported() -> None:
     assert button.url == "https://t.me/ExampleBot"
     assert button.icon_custom_emoji_id == "123456789"
     assert "برای خرید اقدام کن" in button.text
+
+
+def test_configured_report_product_emoji_overrides_product_default() -> None:
+    assert (
+        resolve_report_product_emoji_id(
+            configured="5294476812221439592",
+            product="1111111111111111111",
+            contextual="2222222222222222222",
+        )
+        == "5294476812221439592"
+    )
+    assert (
+        resolve_report_product_emoji_id(
+            configured=None,
+            product="1111111111111111111",
+            contextual="2222222222222222222",
+        )
+        == "1111111111111111111"
+    )
 
 
 def test_all_report_text_icons_can_be_premium() -> None:
