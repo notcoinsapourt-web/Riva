@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 
+from bot.config import AppSettings
 from bot.services.report_test_campaign import (
     build_campaign_slots,
     parse_campaign_start,
@@ -10,7 +12,7 @@ from bot.services.report_test_campaign import (
 
 
 def test_campaign_has_twenty_spread_slots_per_day_and_starts_immediately() -> None:
-    start = datetime(2026, 9, 2, 11, 53, 24, tzinfo=UTC)
+    start = datetime(2026, 9, 2, 12, 5, 42, tzinfo=UTC)
     slots = build_campaign_slots(start, days=14, daily_count=20, seed="campaign")
 
     assert len(slots) == 280
@@ -33,13 +35,19 @@ def test_schedule_is_deterministic_for_restart_safety() -> None:
     assert first == second
 
 
-def test_synthetic_buyer_ids_are_visibly_test_only_and_unique() -> None:
+def test_synthetic_buyer_ids_match_normal_masked_format_and_are_unique() -> None:
     buyers = [synthetic_buyer_id("campaign", index) for index in range(280)]
 
     assert len(set(buyers)) == 280
-    assert all(value.startswith("TEST-") for value in buyers)
+    assert all(re.fullmatch(r"\d{2}\*{6}\d{2}", value) for value in buyers)
+    assert all("TEST" not in value for value in buyers)
 
 
 def test_campaign_start_accepts_utc_z_suffix() -> None:
-    parsed = parse_campaign_start("2026-09-02T11:53:24Z")
-    assert parsed == datetime(2026, 9, 2, 11, 53, 24, tzinfo=UTC)
+    parsed = parse_campaign_start("2026-09-02T12:05:42Z")
+    assert parsed == datetime(2026, 9, 2, 12, 5, 42, tzinfo=UTC)
+
+
+def test_private_invite_link_is_never_misread_as_bot_api_target() -> None:
+    assert AppSettings._chat_target("https://t.me/+zEc9S4ARna0zYWY5") is None
+    assert AppSettings._chat_target("-1004360571325") == -1004360571325
