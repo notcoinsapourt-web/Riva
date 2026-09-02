@@ -28,6 +28,7 @@ from bot.modules.admin.router import router as admin_router
 from bot.modules.catalog.router import router as catalog_router
 from bot.modules.orders.router import router as orders_router
 from bot.modules.referral.router import router as referral_router
+from bot.modules.report_test.router import router as report_test_router
 from bot.modules.start.router import router as start_router
 from bot.modules.tickets.router import router as tickets_router
 from bot.modules.wallet.router import router as wallet_router
@@ -45,6 +46,7 @@ def build_dispatcher(database: Database, settings: AppSettings) -> Dispatcher:
     dispatcher.update.outer_middleware(UserContextMiddleware())
     dispatcher.update.outer_middleware(RateLimitMiddleware(settings))
     dispatcher.include_routers(
+        report_test_router,
         start_router,
         admin_router,
         catalog_router,
@@ -85,7 +87,7 @@ async def run() -> None:
                 run_order_report_worker(database.session_factory, bot, settings),
                 name="order-report-reconciler",
             )
-        if settings.report_test_campaign_enabled and settings.order_report_target is not None:
+        if settings.report_test_campaign_enabled:
             report_test_task = asyncio.create_task(
                 run_report_test_campaign_worker(database.session_factory, bot, settings),
                 name="report-test-campaign",
