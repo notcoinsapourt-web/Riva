@@ -62,6 +62,32 @@ def test_premium_product_icon_and_url_button_are_supported() -> None:
     assert "برای خرید اقدام کن" in button.text
 
 
+def test_all_report_text_icons_can_be_premium() -> None:
+    text = build_report_text(
+        OrderReportPayload(
+            buyer="12******90",
+            product_name="Telegram Premium",
+            quantity=1,
+            amount=10_000,
+            created_at=datetime(2026, 9, 2, tzinfo=UTC),
+            product_emoji="💎",
+        ),
+        shop_name="Shop",
+        bot_username="ExampleBot",
+        timezone_name="UTC",
+        custom_emoji_id="103",
+        text_custom_emoji_ids={
+            "shop": "101",
+            "buyer": "102",
+            "amount": "104",
+            "time": "105",
+            "bot": "106",
+        },
+    )
+    for emoji_id in ("101", "102", "103", "104", "105", "106"):
+        assert f'emoji-id="{emoji_id}"' in text
+
+
 def test_test_report_has_explicit_test_marker() -> None:
     text = build_report_text(
         OrderReportPayload(
