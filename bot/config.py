@@ -20,6 +20,8 @@ class AppSettings(BaseSettings):
 
     order_report_channel_id: str = ""
     order_report_button_emoji_id: str = ""
+    order_report_reconcile_interval_seconds: int = 30
+    order_report_reconcile_hours: int = 2
 
     payments_enabled: bool = False
     payment_integration_confirmed: bool = False
