@@ -18,6 +18,7 @@ from bot.core.language import LocalizationMiddleware
 from bot.core.middlewares import (
     BusinessErrorMiddleware,
     DatabaseSessionMiddleware,
+    MaintenanceModeMiddleware,
     RateLimitMiddleware,
     UserContextMiddleware,
 )
@@ -44,6 +45,7 @@ def build_dispatcher(database: Database, settings: AppSettings) -> Dispatcher:
     dispatcher.update.outer_middleware(BusinessErrorMiddleware())
     dispatcher.update.outer_middleware(DatabaseSessionMiddleware(database.session_factory))
     dispatcher.update.outer_middleware(UserContextMiddleware())
+    dispatcher.update.outer_middleware(MaintenanceModeMiddleware())
     dispatcher.update.outer_middleware(RateLimitMiddleware(settings))
     dispatcher.include_routers(
         report_test_router,
