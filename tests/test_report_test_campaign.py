@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from bot.services.report_test_campaign import (
+    build_campaign_slots,
+    parse_campaign_start,
+    synthetic_buyer_id,
+)
+
+
+def test_campaign_has_twenty_spread_slots_per_day_and_starts_immediately() -> None:
+    start = datetime(2026, 9, 2, 11, 53, 24, tzinfo=UTC)
+    slots = build_campaign_slots(start, days=14, daily_count=20, seed="campaign")
+
+    assert len(slots) == 280
+    assert slots[0].scheduled_at == start
+
+    for day_index in range(14):
+        daily = [slot for slot in slots if slot.day_index == day_index]
+        assert len(daily) == 20
+        day_start = start + timedelta(days=day_index)
+        day_end = day_start + timedelta(days=1)
+        assert all(day_start <= slot.scheduled_at < day_end for slot in daily)
+        assert daily == sorted(daily, key=lambda item: item.scheduled_at)
+
+
+def test_schedule_is_deterministic_for_restart_safety() -> None:
+    start = datetime(2026, 9, 2, tzinfo=UTC)
+    first = build_campaign_slots(start, days=2, daily_count=20, seed="same")
+    second = build_campaign_slots(start, days=2, daily_count=20, seed="same")
+
+    assert first == second
+
+
+def test_synthetic_buyer_ids_are_visibly_test_only_and_unique() -> None:
+    buyers = [synthetic_buyer_id("campaign", index) for index in range(280)]
+
+    assert len(set(buyers)) == 280
+    assert all(value.startswith("TEST-") for value in buyers)
+
+
+def test_campaign_start_accepts_utc_z_suffix() -> None:
+    parsed = parse_campaign_start("2026-09-02T11:53:24Z")
+    assert parsed == datetime(2026, 9, 2, 11, 53, 24, tzinfo=UTC)
