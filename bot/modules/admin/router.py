@@ -10,6 +10,7 @@ from bot.modules.admin import (
     deposits,
     messages,
     orders,
+    report_emojis,
     settings,
     tickets,
     users,
@@ -27,6 +28,7 @@ router.include_routers(
     coupons.router,
     broadcast.router,
     settings.router,
+    report_emojis.router,
     tickets.router,
     messages.router,
 )
