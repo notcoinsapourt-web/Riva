@@ -4,8 +4,6 @@ import logging
 
 from aiogram import Router
 from aiogram.enums import ChatMemberStatus, ChatType
-from aiogram.exceptions import TelegramAPIError
-from aiogram.filters import Command
 from aiogram.types import ChatMemberUpdated, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,16 +48,17 @@ async def bind_when_bot_becomes_channel_admin(
         )
 
 
-@router.channel_post(Command("bindreporttest"))
-async def bind_from_private_channel_command(
+@router.channel_post()
+async def auto_bind_from_private_channel_activity(
     message: Message,
     session: AsyncSession,
     settings: AppSettings,
 ) -> None:
-    """Fallback binding path when the bot was already an admin before deployment.
+    """Auto-bind from ordinary activity in an eligible private channel.
 
-    The bind command is deleted after success so the private test channel stays
-    visually identical to the final report channel.
+    This removes the need for a visible /bindreporttest command. The campaign is
+    stored by Telegram numeric chat ID, so rotating private invite links does not
+    change the destination.
     """
 
     if not settings.report_test_campaign_enabled:
@@ -74,26 +73,15 @@ async def bind_from_private_channel_command(
             settings,
             message.chat.id,
             actor_user_id=None,
-            force=True,
+            force=False,
         )
-        if not bound:
-            return
-
-        try:
-            await message.delete()
-        except TelegramAPIError:
-            logger.warning(
-                "Private report test channel bound but bind command could not be deleted "
-                "chat_id=%s",
+        if bound:
+            logger.info(
+                "Private report test channel auto-detected from channel activity chat_id=%s",
                 message.chat.id,
             )
-
-        logger.info(
-            "Private report test channel bound through /bindreporttest chat_id=%s",
-            message.chat.id,
-        )
     except Exception:
         logger.exception(
-            "Failed to bind private report test channel from command chat_id=%s",
+            "Failed to auto-detect private report test channel chat_id=%s",
             message.chat.id,
         )
