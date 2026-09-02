@@ -88,16 +88,13 @@ class OrderReportService:
                     "shop_name", self.settings.shop_name
                 )
                 report_emojis = await self._report_emoji_ids()
-                product_emoji_id = valid_custom_emoji_id(
-                    order.product.custom_emoji_id if order.product else None
-                )
                 contextual_emoji_id = await self._contextual_emoji_id(
                     order.product.category_id if order.product else None
                 )
-                product_emoji_id = (
-                    product_emoji_id
-                    or report_emojis.get("product")
-                    or contextual_emoji_id
+                product_emoji_id = resolve_report_product_emoji_id(
+                    configured=report_emojis.get("product"),
+                    product=order.product.custom_emoji_id if order.product else None,
+                    contextual=contextual_emoji_id,
                 )
                 button_emoji_id = (
                     report_emojis.get("button")
@@ -415,6 +412,21 @@ async def run_order_report_worker(
         except Exception:
             logger.exception("Order report reconciliation worker failed")
         await asyncio.sleep(interval)
+
+
+def resolve_report_product_emoji_id(
+    *,
+    configured: str | None,
+    product: str | None,
+    contextual: str | None,
+) -> str | None:
+    """Prefer the report-specific Premium Emoji over product/category defaults."""
+
+    return (
+        valid_custom_emoji_id(configured)
+        or valid_custom_emoji_id(product)
+        or valid_custom_emoji_id(contextual)
+    )
 
 
 def mask_identifier(value: object) -> str:
