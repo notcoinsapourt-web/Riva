@@ -23,6 +23,14 @@ class AppSettings(BaseSettings):
     order_report_reconcile_interval_seconds: int = 30
     order_report_reconcile_hours: int = 2
 
+    report_test_campaign_enabled: bool = False
+    report_test_campaign_start: str = ""
+    report_test_campaign_days: int = 14
+    report_test_campaign_daily_count: int = 20
+    report_test_campaign_min_price: int = 300_000
+    report_test_campaign_seed: str = "report-test"
+    report_test_campaign_poll_seconds: int = 20
+
     payments_enabled: bool = False
     payment_integration_confirmed: bool = False
     payment_callback_base_url: str = ""
