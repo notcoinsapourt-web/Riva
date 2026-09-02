@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, Reaction
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
+from bot.core.customer_localization import WELCOME_EN, english_rules_from_persian
 from bot.core.formatting import h, money
 from bot.core.language import (
     is_english,
@@ -25,14 +26,12 @@ router = Router(name="start")
 
 
 async def _apply_language_keyboard(message: Message, language: str) -> None:
-    marker = await message.answer(
+    # Reply keyboards are tied to the message that carries them. Deleting the
+    # invisible carrier makes Telegram hide the keyboard on some clients.
+    await message.answer(
         "\u2063",
         reply_markup=persistent_language_keyboard(language),
     )
-    try:
-        await marker.delete()
-    except TelegramAPIError:
-        pass
 
 
 @router.message(CommandStart())
@@ -165,15 +164,11 @@ async def rules(callback: CallbackQuery, session: AsyncSession, db_user: User) -
         "• قیمت نهایی پیش از پرداخت نمایش داده می‌شود.\n"
         "• وضعیت سفارش و پاسخ پشتیبانی از همین ربات اعلام می‌شود."
     )
+    persian_rules = await settings.module_content("rules", default_text)
     rules_text = (
-        "<b>📄 Purchase Guide & Rules</b>\n\n"
-        "• Read the product description before buying.\n"
-        "• Send only the requested public link or account information.\n"
-        "• Never send passwords, login codes, or banking information.\n"
-        "• The final price is shown before payment.\n"
-        "• Order updates and support replies are delivered through this bot."
+        english_rules_from_persian(persian_rules)
         if is_english(db_user.language_code)
-        else await settings.module_content("rules", default_text)
+        else persian_rules
     )
     await edit_or_send(
         callback,
@@ -220,8 +215,7 @@ async def show_home(event: Message | CallbackQuery, *, session: AsyncSession, us
             )
             return
     welcome = (
-        "Hello {first_name} 👋\nWelcome to Arvan Coin.\n\n"
-        "Choose the service you need from the menu below."
+        WELCOME_EN
         if is_english(hydrated.language_code)
         else await settings.get("welcome_text", "سلام {first_name} 👋")
     )
