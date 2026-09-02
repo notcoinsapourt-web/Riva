@@ -59,7 +59,8 @@ async def report_emoji_command(message: Message, bot: Bot, session: AsyncSession
     emoji_id = extract_custom_emoji_id(message) or valid_custom_emoji_id(raw_value)
     if emoji_id is None or not await validate_custom_emoji(bot, emoji_id):
         await message.answer(
-            "یک ایموجی Premium متحرک را در همان پیام بفرستید یا Custom Emoji ID عددی معتبر وارد کنید.\n\n"
+            "یک ایموجی Premium متحرک را در همان پیام بفرستید یا Custom Emoji ID "
+            "عددی معتبر وارد کنید.\n\n"
             "مثال: <code>/reportemoji amount</code> سپس همان‌جا ایموجی Premium را قرار دهید."
         )
         return
@@ -90,10 +91,10 @@ async def _show_help(message: Message, session: AsyncSession) -> None:
     ]
     for key, (label, setting_key) in SLOTS.items():
         value = await settings.get(setting_key, "")
-        lines.append(
-            f"• <code>{key}</code> — {label}: "
-            f"<code>{value}</code>" if value else f"• <code>{key}</code> — {label}: تنظیم نشده"
-        )
+        if value:
+            lines.append(f"• <code>{key}</code> — {label}: <code>{value}</code>")
+        else:
+            lines.append(f"• <code>{key}</code> — {label}: تنظیم نشده")
     lines.extend(
         [
             "",
