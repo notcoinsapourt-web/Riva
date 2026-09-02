@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import AppSettings, get_settings
 from bot.core.emojis import valid_custom_emoji_id
-from bot.database.models import ActivityLog, Product
+from bot.database.models import ActivityLog, Category, Module, Product
 from bot.services.logs import ActivityLogService
 from bot.services.orders import OrderService
 from bot.services.settings import SettingsService
@@ -88,9 +88,13 @@ class OrderReportService:
                 product_emoji_id = valid_custom_emoji_id(
                     order.product.custom_emoji_id if order.product else None
                 )
+                contextual_emoji_id = await self._contextual_emoji_id(
+                    order.product.category_id if order.product else None
+                )
+                product_emoji_id = product_emoji_id or contextual_emoji_id
                 button_emoji_id = valid_custom_emoji_id(
                     self.settings.order_report_button_emoji_id
-                ) or product_emoji_id
+                ) or contextual_emoji_id or product_emoji_id
                 payload = OrderReportPayload(
                     buyer=mask_identifier(order.user.telegram_id),
                     product_name=order.product_name,
@@ -137,16 +141,7 @@ class OrderReportService:
         shop_name = await SettingsService(self.session).get(
             "shop_name", self.settings.shop_name
         )
-        existing_emoji_id = await self.session.scalar(
-            select(Product.custom_emoji_id)
-            .where(
-                Product.custom_emoji_id.is_not(None),
-                Product.custom_emoji_id != "",
-            )
-            .order_by(Product.id)
-            .limit(1)
-        )
-        product_emoji_id = valid_custom_emoji_id(existing_emoji_id)
+        product_emoji_id = await self._first_existing_premium_emoji()
         button_emoji_id = valid_custom_emoji_id(
             self.settings.order_report_button_emoji_id
         ) or product_emoji_id
@@ -165,6 +160,68 @@ class OrderReportService:
             button_custom_emoji_id=button_emoji_id,
             verify_permissions=True,
         )
+
+    async def _contextual_emoji_id(self, category_id: int | None) -> str | None:
+        candidates: list[object | None] = []
+        if category_id is not None:
+            candidates.append(
+                await self.session.scalar(
+                    select(Category.custom_emoji_id).where(Category.id == category_id)
+                )
+            )
+        candidates.append(
+            await self.session.scalar(
+                select(Module.custom_emoji_id)
+                .where(
+                    Module.name.in_(("catalog", "orders")),
+                    Module.custom_emoji_id.is_not(None),
+                    Module.custom_emoji_id != "",
+                )
+                .order_by(Module.sort_order, Module.id)
+                .limit(1)
+            )
+        )
+        for candidate in candidates:
+            emoji_id = valid_custom_emoji_id(candidate)
+            if emoji_id:
+                return emoji_id
+        return None
+
+    async def _first_existing_premium_emoji(self) -> str | None:
+        candidates = [
+            await self.session.scalar(
+                select(Product.custom_emoji_id)
+                .where(
+                    Product.custom_emoji_id.is_not(None),
+                    Product.custom_emoji_id != "",
+                )
+                .order_by(Product.id)
+                .limit(1)
+            ),
+            await self.session.scalar(
+                select(Category.custom_emoji_id)
+                .where(
+                    Category.custom_emoji_id.is_not(None),
+                    Category.custom_emoji_id != "",
+                )
+                .order_by(Category.id)
+                .limit(1)
+            ),
+            await self.session.scalar(
+                select(Module.custom_emoji_id)
+                .where(
+                    Module.custom_emoji_id.is_not(None),
+                    Module.custom_emoji_id != "",
+                )
+                .order_by(Module.sort_order, Module.id)
+                .limit(1)
+            ),
+        ]
+        for candidate in candidates:
+            emoji_id = valid_custom_emoji_id(candidate)
+            if emoji_id:
+                return emoji_id
+        return None
 
     async def _deliver(
         self,
