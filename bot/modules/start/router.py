@@ -24,6 +24,17 @@ from bot.services.users import UserService
 router = Router(name="start")
 
 
+async def _apply_language_keyboard(message: Message, language: str) -> None:
+    marker = await message.answer(
+        "\u2063",
+        reply_markup=persistent_language_keyboard(language),
+    )
+    try:
+        await marker.delete()
+    except TelegramAPIError:
+        pass
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -40,10 +51,7 @@ async def start(
     payload = command.args or ""
     if payload.startswith("ref_"):
         await UserService(session).apply_referral(db_user, payload.removeprefix("ref_"))
-    await message.answer(
-        "از دکمه پایین می‌توانید زبان ربات را تغییر دهید.",
-        reply_markup=persistent_language_keyboard(db_user.language_code),
-    )
+    await _apply_language_keyboard(message, db_user.language_code)
     await show_home(message, session=session, user=db_user)
 
 
@@ -93,10 +101,7 @@ async def change_language(
     token = set_current_language(language)
     try:
         if isinstance(callback.message, Message):
-            await callback.message.answer(
-                "زبان ربات با موفقیت تغییر کرد.",
-                reply_markup=persistent_language_keyboard(language),
-            )
+            await _apply_language_keyboard(callback.message, language)
         await show_home(callback, session=session, user=user)
     finally:
         reset_current_language(token)
