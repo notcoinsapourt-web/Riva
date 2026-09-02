@@ -83,7 +83,8 @@ async def bind_from_private_channel_command(
             await message.delete()
         except TelegramAPIError:
             logger.warning(
-                "Private report test channel bound but bind command could not be deleted chat_id=%s",
+                "Private report test channel bound but bind command could not be deleted "
+                "chat_id=%s",
                 message.chat.id,
             )
 
