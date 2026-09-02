@@ -23,7 +23,10 @@ class AppSettings(BaseSettings):
     order_report_reconcile_interval_seconds: int = 30
     order_report_reconcile_hours: int = 2
 
+    # Isolated private-channel delivery test. It never creates orders or wallet
+    # transactions and never changes ORDER_REPORT_CHANNEL_ID.
     report_test_campaign_enabled: bool = False
+    report_test_campaign_channel_id: str = ""
     report_test_campaign_start: str = ""
     report_test_campaign_days: int = 14
     report_test_campaign_daily_count: int = 20
@@ -78,20 +81,33 @@ class AppSettings(BaseSettings):
 
         return self.payments_enabled and self.payment_integration_confirmed
 
+    @staticmethod
+    def _chat_target(value: str) -> str | int | None:
+        """Return a Bot API compatible target without guessing private chat IDs."""
+
+        target = value.strip()
+        if not target:
+            return None
+        if target.lstrip("-").isdigit():
+            return int(target)
+        if target.startswith("https://t.me/"):
+            target = target.removeprefix("https://t.me/").strip("/")
+        if target.startswith("t.me/"):
+            target = target.removeprefix("t.me/").strip("/")
+        # Private +invite links are intentionally not converted: the Bot API
+        # cannot address a private channel by invite hash. The channel is bound
+        # from a Telegram update after the bot is made an administrator.
+        if target.startswith("+") or target.startswith("joinchat/"):
+            return None
+        return target if target.startswith("@") else f"@{target}"
+
     @property
     def order_report_target(self) -> str | int | None:
-        """Return a Bot API compatible channel target without guessing Telegram IDs."""
+        return self._chat_target(self.order_report_channel_id)
 
-        value = self.order_report_channel_id.strip()
-        if not value:
-            return None
-        if value.lstrip("-").isdigit():
-            return int(value)
-        if value.startswith("https://t.me/"):
-            value = value.removeprefix("https://t.me/").strip("/")
-        if value.startswith("t.me/"):
-            value = value.removeprefix("t.me/").strip("/")
-        return value if value.startswith("@") else f"@{value}"
+    @property
+    def report_test_campaign_target(self) -> str | int | None:
+        return self._chat_target(self.report_test_campaign_channel_id)
 
 
 @lru_cache(maxsize=1)
