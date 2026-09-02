@@ -186,12 +186,6 @@ async def maintenance_toggle(
         entity_id="maintenance_mode",
         details={"users_blocked": enabled},
     )
-    await callback.answer(
-        "ربات برای کاربران خاموش شد."
-        if enabled
-        else "ربات برای کاربران دوباره فعال شد.",
-        show_alert=True,
-    )
     await show_dashboard(callback, session=session)
 
 
