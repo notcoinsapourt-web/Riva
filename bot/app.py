@@ -26,6 +26,7 @@ from bot.core.middlewares import (
 from bot.database.bootstrap import create_schema, seed_database
 from bot.database.session import Database
 from bot.logging_setup import configure_logging
+from bot.modules.channel_check.router import router as channel_check_router
 from bot.modules.admin.router import router as admin_router
 from bot.modules.catalog.router import router as catalog_router
 from bot.modules.orders.router import router as orders_router
@@ -52,6 +53,7 @@ def build_dispatcher(database: Database, settings: AppSettings) -> Dispatcher:
     dispatcher.include_routers(
         report_test_router,
         start_router,
+        channel_check_router,
         admin_router,
         catalog_router,
         orders_router,
@@ -76,77 +78,28 @@ async def run() -> None:
         await create_schema(database)
         await seed_database(database.session_factory, settings)
         health.ready = True
-        bot = Bot(
-            token=settings.bot_token.get_secret_value(),
-            default=DefaultBotProperties(
-                parse_mode=ParseMode.HTML,
-                link_preview_is_disabled=True,
-            ),
-        )
+        bot = Bot(token=settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True))
         bot.session.middleware(LocalizationMiddleware())
         bot.session.middleware(EnglishButtonCleanupMiddleware())
         bot.session.middleware(PremiumEmojiFallbackMiddleware())
-        if settings.order_report_target is not None:
-            report_task = asyncio.create_task(
-                run_order_report_worker(database.session_factory, bot, settings),
-                name="order-report-reconciler",
-            )
-        if settings.report_test_campaign_enabled:
-            report_test_task = asyncio.create_task(
-                run_report_test_campaign_worker(database.session_factory, bot, settings),
-                name="report-test-campaign",
-            )
         dispatcher = build_dispatcher(database, settings)
         await _set_commands(bot)
         await bot.delete_webhook(drop_pending_updates=False)
-        logger.info("Persian Shop bot started")
-        await dispatcher.start_polling(
-            bot,
-            settings=settings,
-            allowed_updates=dispatcher.resolve_used_update_types(),
-        )
+        await dispatcher.start_polling(bot, settings=settings, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
-        for task in (report_test_task, report_task):
-            if task is not None:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-        health.ready = False
-        if settings.health_server_enabled:
-            await health.stop()
         await database.close()
 
 
 async def _set_commands(bot: Bot) -> None:
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="شروع و منوی اصلی"),
-            BotCommand(command="menu", description="نمایش منوی فروشگاه"),
-            BotCommand(command="admin", description="پنل مدیریت"),
-            BotCommand(command="cancel", description="لغو عملیات جاری"),
-        ],
-        scope=BotCommandScopeAllPrivateChats(),
-    )
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Start and main menu"),
-            BotCommand(command="menu", description="Show shop menu"),
-            BotCommand(command="admin", description="Admin panel"),
-            BotCommand(command="cancel", description="Cancel current operation"),
-        ],
-        scope=BotCommandScopeAllPrivateChats(),
-        language_code="en",
-    )
+    await bot.set_my_commands([BotCommand(command="start", description="شروع و منوی اصلی")], scope=BotCommandScopeAllPrivateChats())
 
 
 def _prepare_sqlite_directory(database_url: str) -> None:
     prefix = "sqlite+aiosqlite:///"
-    if not database_url.startswith(prefix):
-        return
-    path = database_url.removeprefix(prefix)
-    if path == ":memory:":
-        return
-    Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+    if database_url.startswith(prefix):
+        path = database_url.removeprefix(prefix)
+        if path != ":memory:":
+            Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
 def main() -> None:
