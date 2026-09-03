@@ -7,6 +7,7 @@ from aiogram import BaseMiddleware, Bot
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.core.callbacks import NavCallback
 from bot.services.channels import ChannelService
 from bot.services.users import UserService
 
@@ -30,12 +31,18 @@ class ChannelMembershipMiddleware(BaseMiddleware):
 
         missing = await ChannelService(session).missing_for(bot, user.id)
 
-        if isinstance(event, CallbackQuery) and event.data == "check_channel_membership":
-            if not missing:
-                await event.answer("✅ عضویت شما تایید شد.", show_alert=True)
-                return await handler(event, data)
-            await event.answer("❌ هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
-            return None
+        if isinstance(event, CallbackQuery):
+            try:
+                callback_data = NavCallback.unpack(event.data or "")
+            except Exception:
+                callback_data = None
+
+            if callback_data and callback_data.action == "verify_join":
+                if not missing:
+                    await event.answer("✅ عضویت شما تایید شد.", show_alert=True)
+                    return await handler(event, data)
+                await event.answer("❌ هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
+                return None
 
         if not missing:
             return await handler(event, data)
@@ -43,7 +50,12 @@ class ChannelMembershipMiddleware(BaseMiddleware):
         from bot.core.ui import button, keyboard
 
         rows = [[button(f"📣 {channel.title}", url=channel.invite_link)] for channel in missing]
-        rows.append([button("✅ بررسی عضویت", callback_data="check_channel_membership")])
+        rows.append([
+            button(
+                "✅ بررسی عضویت",
+                callback_data=NavCallback(action="verify_join").pack(),
+            )
+        ])
 
         text = "برای استفاده از ربات ابتدا عضو کانال‌های زیر شوید:"
         if isinstance(event, Message):
