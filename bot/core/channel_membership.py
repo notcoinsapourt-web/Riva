@@ -23,7 +23,16 @@ class ChannelMembershipMiddleware(BaseMiddleware):
         if user is None or session is None or bot is None:
             return await handler(event, data)
 
-        missing = await ChannelService(session).missing_for(bot, user.id)
+        service = ChannelService(session)
+        missing = await service.missing_for(bot, user.id)
+
+        if isinstance(event, CallbackQuery) and event.data == "check_channel_membership":
+            if not missing:
+                await event.answer("✅ عضویت شما تایید شد.", show_alert=True)
+                return await handler(event, data)
+            await event.answer("❌ هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
+            return None
+
         if not missing:
             return await handler(event, data)
 
