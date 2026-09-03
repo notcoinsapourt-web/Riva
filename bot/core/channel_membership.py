@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services.channels import ChannelService
+from bot.services.users import UserService
 
 Handler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
 
@@ -23,8 +24,11 @@ class ChannelMembershipMiddleware(BaseMiddleware):
         if user is None or session is None or bot is None:
             return await handler(event, data)
 
-        service = ChannelService(session)
-        missing = await service.missing_for(bot, user.id)
+        db_user = data.get("db_user")
+        if db_user is not None and await UserService(session).is_admin(db_user.id):
+            return await handler(event, data)
+
+        missing = await ChannelService(session).missing_for(bot, user.id)
 
         if isinstance(event, CallbackQuery) and event.data == "check_channel_membership":
             if not missing:
@@ -38,9 +42,7 @@ class ChannelMembershipMiddleware(BaseMiddleware):
 
         from bot.core.ui import button, keyboard
 
-        rows = []
-        for channel in missing:
-            rows.append([button(f"📣 {channel.title}", url=channel.invite_link)])
+        rows = [[button(f"📣 {channel.title}", url=channel.invite_link)] for channel in missing]
         rows.append([button("✅ بررسی عضویت", callback_data="check_channel_membership")])
 
         text = "برای استفاده از ربات ابتدا عضو کانال‌های زیر شوید:"
