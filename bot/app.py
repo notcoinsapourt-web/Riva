@@ -12,6 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from bot.config import AppSettings, get_settings
+from bot.core.channel_membership import ChannelMembershipMiddleware
 from bot.core.customer_localization import EnglishButtonCleanupMiddleware
 from bot.core.emojis import PremiumEmojiFallbackMiddleware
 from bot.core.language import LocalizationMiddleware
@@ -45,6 +46,7 @@ def build_dispatcher(database: Database, settings: AppSettings) -> Dispatcher:
     dispatcher.update.outer_middleware(BusinessErrorMiddleware())
     dispatcher.update.outer_middleware(DatabaseSessionMiddleware(database.session_factory))
     dispatcher.update.outer_middleware(UserContextMiddleware())
+    dispatcher.update.outer_middleware(ChannelMembershipMiddleware())
     dispatcher.update.outer_middleware(MaintenanceModeMiddleware())
     dispatcher.update.outer_middleware(RateLimitMiddleware(settings))
     dispatcher.include_routers(
