@@ -14,6 +14,7 @@ from bot.modules.admin import (
     settings,
     tickets,
     users,
+    web_store,
 )
 
 router = Router(name="admin")
@@ -23,6 +24,7 @@ router.include_routers(
     channels.router,
     admins.router,
     orders.router,
+    web_store.router,
     catalog.router,
     users.router,
     coupons.router,
