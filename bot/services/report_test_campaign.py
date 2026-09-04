@@ -93,11 +93,27 @@ def build_campaign_slots(
     return slots
 
 
+def low_price_slot_indexes(daily_count: int, requested_count: int) -> set[int]:
+    """Spread the requested low-price reports evenly through each campaign day."""
+
+    total = max(1, int(daily_count))
+    requested = max(0, min(int(requested_count), total))
+    if requested == 0:
+        return set()
+    if requested == total:
+        return set(range(total))
+    # Middle of evenly sized day segments. For 30/5 this yields 3,9,15,21,27.
+    return {
+        min(total - 1, int(((index + 0.5) * total) / requested))
+        for index in range(requested)
+    }
+
+
 def synthetic_buyer_id(seed: str, global_index: int) -> str:
     """Return a deterministic, unique masked pseudo-ID for the private test channel."""
 
     # 37 is coprime to 10,000, so the visible prefix+suffix pair cannot repeat
-    # during this 280-message campaign. The seed changes the starting offset.
+    # during this bounded campaign. The seed changes the starting offset.
     offset = int.from_bytes(hashlib.sha256(seed.encode()).digest()[:2], "big") % 10_000
     value = (offset + max(0, int(global_index)) * 37) % 10_000
     prefix, suffix = divmod(value, 100)
@@ -272,6 +288,28 @@ async def _eligible_products(session: AsyncSession, min_price: int) -> list[Prod
     )
 
 
+async def _eligible_products_in_range(
+    session: AsyncSession,
+    min_price: int,
+    max_price: int,
+) -> list[Product]:
+    low = max(0, int(min_price))
+    high = max(low, int(max_price))
+    return list(
+        (
+            await session.scalars(
+                select(Product)
+                .where(
+                    Product.is_active.is_(True),
+                    Product.price >= low,
+                    Product.price <= high,
+                )
+                .order_by(Product.id)
+            )
+        ).all()
+    )
+
+
 async def _sent_slot_keys(session: AsyncSession, campaign_id: str) -> set[str]:
     prefix = f"{campaign_id}:"
     values = list(
@@ -301,6 +339,7 @@ async def _send_slot(
     slot: CampaignSlot,
     campaign_id: str,
     products: list[Product],
+    price_band: str = "standard",
 ) -> None:
     product = pick_product(
         products,
@@ -356,6 +395,7 @@ async def _send_slot(
             "product_id": product.id,
             "product_name": product.name,
             "amount": int(product.price),
+            "price_band": price_band,
             "buyer": buyer,
             "chat_id": delivery.chat_id,
             "message_id": delivery.message_id,
@@ -366,11 +406,12 @@ async def _send_slot(
     )
     logger.info(
         "Private report delivery test sent campaign=%s slot=%s product_id=%s "
-        "amount=%s message_id=%s",
+        "amount=%s price_band=%s message_id=%s",
         campaign_id,
         slot.key,
         product.id,
         product.price,
+        price_band,
         delivery.message_id,
     )
 
@@ -380,7 +421,7 @@ async def run_report_test_campaign_worker(
     bot: Bot,
     settings: AppSettings | None = None,
 ) -> None:
-    """Send 20 isolated report-format messages per day for a bounded private test campaign."""
+    """Send isolated report-format messages per day for a bounded private test campaign."""
 
     config = settings or get_settings()
     if not config.report_test_campaign_enabled:
@@ -388,6 +429,8 @@ async def run_report_test_campaign_worker(
 
     days = max(1, min(int(config.report_test_campaign_days), 31))
     daily_count = max(1, min(int(config.report_test_campaign_daily_count), 96))
+    low_daily_count = max(0, min(int(config.report_test_campaign_low_price_daily_count), daily_count))
+    low_slots = low_price_slot_indexes(daily_count, low_daily_count)
     poll_seconds = max(10, min(int(config.report_test_campaign_poll_seconds), 300))
 
     active_target: int | None = None
@@ -423,6 +466,8 @@ async def run_report_test_campaign_worker(
                         daily_count=daily_count,
                         seed=config.report_test_campaign_seed,
                     )
+                    # Keep the existing campaign identity stable: only target/start/days/
+                    # daily_count/seed participate, so already-sent slot keys remain valid.
                     campaign_id = hashlib.sha256(
                         (
                             f"{target}:{start_at.isoformat()}:{days}:{daily_count}:"
@@ -431,13 +476,16 @@ async def run_report_test_campaign_worker(
                     ).hexdigest()[:16]
                     logger.info(
                         "Private report test campaign armed id=%s target=%s start=%s end=%s "
-                        "daily_count=%s min_price=%s",
+                        "daily_count=%s min_price=%s low_daily_count=%s low_range=%s-%s",
                         campaign_id,
                         target,
                         start_at.isoformat(),
                         campaign_end.isoformat(),
                         daily_count,
                         config.report_test_campaign_min_price,
+                        low_daily_count,
+                        config.report_test_campaign_low_price_min,
+                        config.report_test_campaign_low_price_max,
                     )
 
                 assert campaign_end is not None
@@ -452,7 +500,7 @@ async def run_report_test_campaign_worker(
                     else:
                         logger.error(
                             "Private report test campaign ended id=%s sent=%s expected=%s; "
-                            "no messages will be sent after the 14-day window",
+                            "no messages will be sent after the campaign window",
                             campaign_id,
                             len(sent_keys),
                             len(slots),
@@ -468,24 +516,44 @@ async def run_report_test_campaign_worker(
                     products = await _eligible_products(
                         session, config.report_test_campaign_min_price
                     )
+                    low_price_products = await _eligible_products_in_range(
+                        session,
+                        config.report_test_campaign_low_price_min,
+                        config.report_test_campaign_low_price_max,
+                    )
                     if not products:
                         logger.error(
                             "Private report test campaign has no active products above %s تومان",
                             config.report_test_campaign_min_price,
                         )
-                    else:
-                        # Recover short deployment gaps without creating a large instant burst.
-                        for slot in due[:2]:
-                            await _send_slot(
-                                session,
-                                bot,
-                                config,
-                                target=active_target,
-                                slot=slot,
-                                campaign_id=campaign_id,
-                                products=products,
-                            )
-                            await asyncio.sleep(2)
+                    if low_daily_count and not low_price_products:
+                        logger.error(
+                            "Private report test campaign has no active products in low-price range %s-%s تومان",
+                            config.report_test_campaign_low_price_min,
+                            config.report_test_campaign_low_price_max,
+                        )
+
+                    # Recover short deployment gaps without creating a large instant burst.
+                    for slot in due[:2]:
+                        is_low_slot = slot.slot_index in low_slots
+                        selected_pool = low_price_products if is_low_slot else products
+                        price_band = "100k-300k" if is_low_slot else "standard"
+                        if not selected_pool:
+                            # Never synthesize a fake product or revive a disabled product.
+                            # If a configured band has no active product, skip that slot until
+                            # the catalog contains an eligible live product.
+                            continue
+                        await _send_slot(
+                            session,
+                            bot,
+                            config,
+                            target=active_target,
+                            slot=slot,
+                            campaign_id=campaign_id,
+                            products=selected_pool,
+                            price_band=price_band,
+                        )
+                        await asyncio.sleep(2)
         except asyncio.CancelledError:
             raise
         except Exception:
