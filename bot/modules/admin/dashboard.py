@@ -91,7 +91,7 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
                     ),
                     button(
                         "🛠 کنترل سایت",
-                        callback_data=AdminCallback(section="website", action="toggle" if False else "show").pack(),
+                        callback_data=AdminCallback(section="website", action="show").pack(),
                     ),
                 ],
                 [
