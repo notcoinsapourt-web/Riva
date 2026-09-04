@@ -85,8 +85,28 @@ async def run() -> None:
         dispatcher = build_dispatcher(database, settings)
         await _set_commands(bot)
         await bot.delete_webhook(drop_pending_updates=False)
+
+        # Background delivery workers are intentionally isolated from polling.
+        # They only reconcile/report existing data and never reseed or mutate the
+        # manually configured catalog/Premium Emoji settings.
+        report_task = asyncio.create_task(
+            run_order_report_worker(database.session_factory, bot, settings),
+            name="order-report-worker",
+        )
+        report_test_task = asyncio.create_task(
+            run_report_test_campaign_worker(database.session_factory, bot, settings),
+            name="private-report-test-campaign",
+        )
+
         await dispatcher.start_polling(bot, settings=settings, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        for task in (report_task, report_test_task):
+            if task is not None:
+                task.cancel()
+        for task in (report_task, report_test_task):
+            if task is not None:
+                with suppress(asyncio.CancelledError):
+                    await task
         await database.close()
 
 
