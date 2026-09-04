@@ -15,7 +15,6 @@ from bot.modules.admin import (
     tickets,
     users,
     web_store,
-    web_store_deposit_fix,
     website_control,
 )
 
@@ -26,7 +25,6 @@ router.include_routers(
     channels.router,
     admins.router,
     orders.router,
-    web_store_deposit_fix.router,
     web_store.router,
     website_control.router,
     catalog.router,
