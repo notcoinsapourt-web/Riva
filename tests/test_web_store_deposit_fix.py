@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +9,6 @@ from sqlalchemy import select
 from bot.core.callbacks import AdminCallback
 from bot.database.web_models import WebDeposit, WebWallet, WebWalletTransaction
 from bot.modules.admin import web_store
-from bot.modules.admin.web_store_deposit_fix import review_web_deposit_fixed
 
 
 class DummyCallback:
@@ -17,17 +16,26 @@ class DummyCallback:
         self.from_user = SimpleNamespace(id=admin_id)
         self.answers: list[tuple[str, bool]] = []
 
-    async def answer(self, text: str | None = None, *, show_alert: bool = False, **_: object) -> None:
+    async def answer(
+        self,
+        text: str | None = None,
+        *,
+        show_alert: bool = False,
+        **_: object,
+    ) -> None:
         self.answers.append((text or "", show_alert))
 
 
 @pytest.mark.asyncio
-async def test_website_deposit_approval_persists_wallet_credit(database, monkeypatch) -> None:
+async def test_website_deposit_approval_persists_wallet_credit(
+    database,
+    monkeypatch,
+) -> None:
     async def no_op_show_deposit(*_: object, **__: object) -> None:
         return None
 
     monkeypatch.setattr(web_store, "show_deposit", no_op_show_deposit)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     async with database.session_factory() as session:
         session.add(
@@ -61,7 +69,11 @@ async def test_website_deposit_approval_persists_wallet_credit(database, monkeyp
     callback = DummyCallback()
     callback_data = AdminCallback(section="web", action="da", entity_id=20)
     async with database.session_factory() as session:
-        await review_web_deposit_fixed(callback, callback_data, session)  # type: ignore[arg-type]
+        await web_store.review_web_deposit(  # type: ignore[arg-type]
+            callback,
+            callback_data,
+            session,
+        )
 
     async with database.session_factory() as session:
         deposit = await session.get(WebDeposit, 20)
@@ -80,4 +92,4 @@ async def test_website_deposit_approval_persists_wallet_credit(database, monkeyp
         assert int(transaction.balance_before) == 125_000
         assert int(transaction.balance_after) == 375_000
 
-    assert callback.answers[-1][0] == "رسید تأیید شد و موجودی کیف پول کاربر افزایش یافت."
+    assert callback.answers[-1][0] == "رسید تأیید شد و موجودی کیف پول افزایش یافت."
