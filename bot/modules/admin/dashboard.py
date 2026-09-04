@@ -17,6 +17,7 @@ from bot.modules.admin.common import protected_router
 from bot.services.admin import AdminDashboardService
 from bot.services.logs import ActivityLogService
 from bot.services.maintenance import MaintenanceModeService
+from bot.services.settings import SettingsService
 
 router = protected_router("dashboard")
 
@@ -44,12 +45,15 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
         .where(User.telegram_id == event.from_user.id, Admin.is_active.is_(True))
     )
     maintenance_enabled = await MaintenanceModeService(session).is_enabled()
+    website_maintenance = await SettingsService(session).get_bool("website_maintenance", False)
     if role in {UserRole.OWNER, UserRole.ADMIN}:
         user_access = "🔴 خاموش" if maintenance_enabled else "🟢 فعال"
+        website_access = "🔴 در حال بروزرسانی" if website_maintenance else "🟢 آنلاین"
         text = (
             "<b>👑 مدیریت Persian Shop</b>\n"
             "<i>مرکز کنترل فروشگاه دیجیتال</i>\n\n"
-            f"🤖 دسترسی کاربران: <b>{user_access}</b>\n\n"
+            f"🤖 دسترسی کاربران ربات: <b>{user_access}</b>\n"
+            f"🌐 وضعیت سایت: <b>{website_access}</b>\n\n"
             f"📦 سفارش جدید: <b>{data['pending_orders']}</b>\n"
             f"🎧 تیکت باز: <b>{data['open_tickets']}</b>\n"
             f"💎 محصول فعال: <b>{data['active_products']}</b>\n"
@@ -84,7 +88,11 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
                         "🌐 بخش سایت",
                         callback_data=AdminCallback(section="web", action="show").pack(),
                         style="primary",
-                    )
+                    ),
+                    button(
+                        "🛠 کنترل سایت",
+                        callback_data=AdminCallback(section="website", action="toggle" if False else "show").pack(),
+                    ),
                 ],
                 [
                     button(
