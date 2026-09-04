@@ -81,9 +81,15 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
                 ],
                 [
                     button(
+                        "🌐 بخش سایت",
+                        callback_data=AdminCallback(section="web", action="show").pack(),
+                        style="primary",
+                    )
+                ],
+                [
+                    button(
                         "📦 سفارش‌ها",
                         callback_data=AdminCallback(section="orders", action="list").pack(),
-                        style="primary",
                     ),
                     button(
                         "💎 محصولات",
@@ -143,13 +149,21 @@ async def show_dashboard(event: Message | CallbackQuery, *, session: AsyncSessio
             ]
         )
     elif role == UserRole.OPERATOR:
-        rows.append(
+        rows.extend(
             [
-                button(
-                    "📦 مدیریت سفارش‌ها",
-                    callback_data=AdminCallback(section="orders", action="list").pack(),
-                    style="primary",
-                )
+                [
+                    button(
+                        "📦 مدیریت سفارش‌ها",
+                        callback_data=AdminCallback(section="orders", action="list").pack(),
+                        style="primary",
+                    )
+                ],
+                [
+                    button(
+                        "🌐 سفارش‌های سایت",
+                        callback_data=AdminCallback(section="web", action="orders").pack(),
+                    )
+                ],
             ]
         )
     elif role == UserRole.SUPPORT:
