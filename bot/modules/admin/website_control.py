@@ -76,6 +76,15 @@ async def site_online(message: Message, session: AsyncSession, db_user: User) ->
 
 
 @router.callback_query(
+    AdminCallback.filter((F.section == "website") & (F.action == "show")),
+    HasAdminRole(UserRole.OWNER, UserRole.ADMIN),
+)
+async def site_show(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+    await show_site_control(callback, session)
+
+
+@router.callback_query(
     AdminCallback.filter((F.section == "website") & (F.action == "toggle")),
     HasAdminRole(UserRole.OWNER, UserRole.ADMIN),
 )
