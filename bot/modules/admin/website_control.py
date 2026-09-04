@@ -56,6 +56,10 @@ async def set_site_state(session: AsyncSession, db_user: User, *, enabled: bool)
         entity_id=WEBSITE_MAINTENANCE_KEY,
         details={"website_offline": enabled, "bot_affected": False},
     )
+    # DatabaseSessionMiddleware intentionally does not auto-commit. Persist the
+    # website state and its audit log here so the maintenance toggle survives
+    # the end of the Telegram update/session.
+    await session.commit()
 
 
 @router.message(Command("site"), HasAdminRole(UserRole.OWNER, UserRole.ADMIN))
