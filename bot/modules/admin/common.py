@@ -10,6 +10,7 @@ from bot.database.enums import UserRole
 
 ROLE_MATRIX = {
     "orders": (UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR),
+    "web_store": (UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR),
     "catalog": (UserRole.OWNER, UserRole.ADMIN),
     "users": (UserRole.OWNER, UserRole.ADMIN),
     "coupons": (UserRole.OWNER, UserRole.ADMIN),
