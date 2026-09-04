@@ -13,7 +13,7 @@ class AppSettings(BaseSettings):
     admin_ids: tuple[int, ...] = Field(default_factory=tuple)
     database_url: str = "sqlite+aiosqlite:///./data/persian_shop.db"
     shop_name: str = "Persian Shop"
-    support_username: str = ""
+    support_username: str = "@Znoxe_shope"
     default_language: str = "fa"
     timezone: str = "Asia/Tehran"
     log_level: str = "INFO"
@@ -29,8 +29,11 @@ class AppSettings(BaseSettings):
     report_test_campaign_channel_id: str = ""
     report_test_campaign_start: str = ""
     report_test_campaign_days: int = 14
-    report_test_campaign_daily_count: int = 20
+    report_test_campaign_daily_count: int = 30
     report_test_campaign_min_price: int = 300_000
+    report_test_campaign_low_price_daily_count: int = 5
+    report_test_campaign_low_price_min: int = 100_000
+    report_test_campaign_low_price_max: int = 300_000
     report_test_campaign_seed: str = "report-test"
     report_test_campaign_poll_seconds: int = 20
 
