@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Bot
-from aiogram.types import CallbackQuery, Message, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
@@ -21,8 +21,9 @@ class ChannelMembershipMiddleware(BaseMiddleware):
         user = data.get("event_from_user")
         session: AsyncSession | None = data.get("session")
         bot: Bot | None = data.get("bot")
+        inner_event = _inner_event(event)
 
-        if user is None or session is None or bot is None:
+        if user is None or session is None or bot is None or inner_event is None:
             return await handler(event, data)
 
         db_user = data.get("db_user")
@@ -31,17 +32,17 @@ class ChannelMembershipMiddleware(BaseMiddleware):
 
         missing = await ChannelService(session).missing_for(bot, user.id)
 
-        if isinstance(event, CallbackQuery):
+        if isinstance(inner_event, CallbackQuery):
             try:
-                callback_data = NavCallback.unpack(event.data or "")
+                callback_data = NavCallback.unpack(inner_event.data or "")
             except Exception:
                 callback_data = None
 
             if callback_data and callback_data.action == "verify_join":
                 if not missing:
-                    await event.answer("✅ عضویت شما تایید شد.", show_alert=True)
+                    await inner_event.answer("✅ عضویت شما تایید شد.", show_alert=True)
                     return await handler(event, data)
-                await event.answer("❌ هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
+                await inner_event.answer("❌ هنوز عضو همه کانال‌ها نشده‌اید.", show_alert=True)
                 return None
 
         if not missing:
@@ -58,8 +59,17 @@ class ChannelMembershipMiddleware(BaseMiddleware):
         ])
 
         text = "برای استفاده از ربات ابتدا عضو کانال‌های زیر شوید:"
-        if isinstance(event, Message):
-            await event.answer(text, reply_markup=keyboard(*rows))
-        elif isinstance(event, CallbackQuery):
-            await event.answer("ابتدا عضو کانال شوید.", show_alert=True)
+        if isinstance(inner_event, Message):
+            await inner_event.answer(text, reply_markup=keyboard(*rows))
+        elif isinstance(inner_event, CallbackQuery):
+            await inner_event.answer("ابتدا عضو کانال شوید.", show_alert=True)
         return None
+
+
+def _inner_event(event: TelegramObject) -> Message | CallbackQuery | None:
+    """Return the actionable event when middleware is installed on updates."""
+    if isinstance(event, (Message, CallbackQuery)):
+        return event
+    if isinstance(event, Update):
+        return event.callback_query or event.message
+    return None
