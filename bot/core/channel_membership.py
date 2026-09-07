@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware, Bot
-from aiogram.types import CallbackQuery, Message, TelegramObject, Update
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.core.callbacks import NavCallback
@@ -50,7 +50,10 @@ class ChannelMembershipMiddleware(BaseMiddleware):
 
         from bot.core.ui import button, keyboard
 
-        rows = [[button(f"📣 {channel.title}", url=channel.invite_link)] for channel in missing]
+        rows = [
+            [InlineKeyboardButton(text=f"📣 {channel.title}", url=channel.invite_link)]
+            for channel in missing
+        ]
         rows.append([
             button(
                 "✅ بررسی عضویت",
